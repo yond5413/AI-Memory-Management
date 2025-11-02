@@ -1,0 +1,21 @@
+# Exclude test files from Vercel deployment
+tests/
+
+# Exclude Python cache files
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Exclude pytest cache
+.pytest_cache/
+
+# Exclude Python virtual environments
+venv/
+env/
+.venv/
+
+# Exclude development files
+*.log
+.env.local
+

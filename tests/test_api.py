@@ -1,7 +1,7 @@
 """Basic smoke tests for the API."""
 import pytest
 from fastapi.testclient import TestClient
-from api.main import app
+from api.index import app
 
 client = TestClient(app)
 
@@ -23,7 +23,7 @@ def test_health():
 def test_create_memory_endpoint_exists():
     """Test memory creation."""
     response = client.post(
-        "/memories",
+        "/api/memories",
         json={"content": "Test memory content"}
     )
     # Should fail without proper setup, but endpoint should exist
@@ -32,7 +32,7 @@ def test_create_memory_endpoint_exists():
 
 def test_search_endpoint_exists():
     """Test search endpoint exists."""
-    response = client.get("/search?q=test")
+    response = client.get("/api/search?q=test")
     # Should fail without proper setup, but endpoint should exist
     assert response.status_code in [200, 422, 500]
 
