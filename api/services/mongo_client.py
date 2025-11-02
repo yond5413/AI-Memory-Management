@@ -26,3 +26,4 @@ def close_db():
         _client = None
         _db = None
 
+

@@ -46,3 +46,4 @@ class RelationshipDocument(BaseModel):
     description: Optional[str] = None
     created_at: datetime
 
+

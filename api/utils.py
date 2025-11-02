@@ -18,3 +18,4 @@ def gen_id(prefix: Literal["mem", "rel", "vec", "ent"] = "mem") -> str:
     short = base64.urlsafe_b64encode(raw)[:8].decode("utf-8")
     return f"{prefix}_{short}"
 
+

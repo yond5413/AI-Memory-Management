@@ -33,3 +33,4 @@ def create_embedding(text: str) -> List[float]:
     )
     return response.embeddings[0]
 
+

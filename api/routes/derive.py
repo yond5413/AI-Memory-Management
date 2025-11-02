@@ -4,7 +4,8 @@ from api.models.memory import MemoryCreate, MemoryResponse
 from api.models.relationship import RelationshipCreate
 from api.services.mongo_client import get_db
 from api.services.llm import derive_insight
-from api.routes.memories import create_memory
+from api.services.memory_service import create_memory_service
+from api.services.relationship_service import create_relationship_service
 from typing import List
 
 router = APIRouter()
@@ -31,7 +32,7 @@ async def derive_memory(memory_ids: List[str]):
         content=derived_content,
         metadata={"source": "derived", "based_on": memory_ids}
     )
-    derived_memory = await create_memory(memory_create)
+    derived_memory = await create_memory_service(memory_create)
     
     # Create derive relationships
     for memory_id in memory_ids:
@@ -40,9 +41,7 @@ async def derive_memory(memory_ids: List[str]):
             type="derive",
             description=f"Derived from memory {memory_id}"
         )
-        # Import here to avoid circular dependency
-        from api.routes.relationships import create_relationship
-        await create_relationship(memory_id, relationship)
+        await create_relationship_service(memory_id, relationship)
     
     return derived_memory
 

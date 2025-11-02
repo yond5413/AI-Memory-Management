@@ -17,20 +17,20 @@ import {
 } from "@/app/lib/api";
 
 export function useMemory(id: string | null) {
-  return useSWR<Memory>(id ? `/memories/${id}` : null, () => (id ? getMemory(id) : null));
+  return useSWR<Memory>(id ? `/memories/${id}` : null, id ? () => getMemory(id) : null);
 }
 
 export function useMemoryLineage(id: string | null) {
   return useSWR<LineageResponse>(
     id ? `/memories/${id}/lineage` : null,
-    () => (id ? getMemoryLineage(id) : null)
+    id ? () => getMemoryLineage(id) : null
   );
 }
 
 export function useSearch(query: string | null) {
   return useSWR<Memory[]>(
     query ? `/search?q=${encodeURIComponent(query)}` : null,
-    () => (query ? searchMemories(query) : null)
+    query ? () => searchMemories(query) : null
   );
 }
 
@@ -41,4 +41,5 @@ export const memoryMutations = {
   createRelationship: createRelationship,
   derive: deriveMemory,
 };
+
 
