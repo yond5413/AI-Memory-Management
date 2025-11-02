@@ -1,6 +1,6 @@
 """LLM service for deriving insights using OpenRouter."""
 import openai
-from api.config import settings
+from api.utils.config import settings
 from typing import List
 
 

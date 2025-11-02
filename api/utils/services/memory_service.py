@@ -1,9 +1,9 @@
 """Memory service functions."""
-from api.models.memory import MemoryCreate, MemoryResponse, MemoryStatus
-from api.services.mongo_client import get_db
-from api.services.embeddings import create_embedding
-from api.services.pinecone_client import upsert_embedding
-from api.utils import gen_id
+from api.utils.models.memory import MemoryCreate, MemoryResponse, MemoryStatus
+from api.utils.services.mongo_client import get_db
+from api.utils.services.embeddings import create_embedding
+from api.utils.services.pinecone_client import upsert_embedding
+from api.utils.helpers import gen_id
 from datetime import datetime
 
 
@@ -51,5 +51,4 @@ async def create_memory_service(memory: MemoryCreate) -> MemoryResponse:
     
     # Return response
     return MemoryResponse(**{**memory_doc, "id": memory_id})
-
 

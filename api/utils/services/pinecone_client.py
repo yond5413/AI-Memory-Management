@@ -1,6 +1,6 @@
 """Pinecone client for vector storage and search."""
 from pinecone import Pinecone, ServerlessSpec
-from api.config import settings
+from api.utils.config import settings
 from typing import List, Dict, Any
 import uuid
 

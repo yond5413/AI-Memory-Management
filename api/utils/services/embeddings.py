@@ -1,6 +1,6 @@
 """Embedding service using Cohere."""
 import cohere
-from api.config import settings
+from api.utils.config import settings
 from typing import List
 
 
@@ -32,5 +32,4 @@ def create_embedding(text: str) -> List[float]:
         input_type="search_document"
     )
     return response.embeddings[0]
-
 

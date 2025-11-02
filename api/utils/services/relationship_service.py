@@ -1,9 +1,9 @@
 """Relationship service functions."""
 from fastapi import HTTPException
-from api.models.relationship import RelationshipCreate, RelationshipResponse
-from api.models.memory import MemoryStatus
-from api.services.mongo_client import get_db
-from api.utils import gen_id
+from api.utils.models.relationship import RelationshipCreate, RelationshipResponse, RelationshipType
+from api.utils.models.memory import MemoryStatus
+from api.utils.services.mongo_client import get_db
+from api.utils.helpers import gen_id
 from datetime import datetime
 
 
@@ -21,7 +21,7 @@ async def create_relationship_service(from_memory_id: str, relationship: Relatio
         raise HTTPException(status_code=404, detail="To memory not found")
     
     # Handle update relationship - mark old memory as outdated
-    if relationship.type == "update":
+    if relationship.type == RelationshipType.UPDATE:
         db.memories.update_one(
             {"_id": from_memory_id},
             {
@@ -51,5 +51,4 @@ async def create_relationship_service(from_memory_id: str, relationship: Relatio
     db.relationships.insert_one(relationship_doc)
     
     return RelationshipResponse(**{**relationship_doc, "id": relationship_id})
-
 

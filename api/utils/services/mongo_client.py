@@ -1,7 +1,7 @@
 """MongoDB client and connection management."""
 from pymongo import MongoClient
 from pymongo.database import Database
-from api.config import settings
+from api.utils.config import settings
 from typing import Optional
 
 
@@ -25,5 +25,4 @@ def close_db():
         _client.close()
         _client = None
         _db = None
-
 
