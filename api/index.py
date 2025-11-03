@@ -21,14 +21,19 @@ app = FastAPI(title="Semantic Memory API", version="0.1.0")
 # CORS middleware for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Next.js default port
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://ai-memory-management-lyp4vtyw5-yond5413s-projects.vercel.app",
+        "https://*.vercel.app",  # Allow all Vercel preview deployments
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Create API router with /api prefix
-api_router = APIRouter(prefix="/api")
+# Create API router (no prefix needed - Vercel routes /api/* to this function)
+api_router = APIRouter()
 
 
 # Memory routes

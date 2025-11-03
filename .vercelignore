@@ -1,21 +1,19 @@
-# Exclude test files from Vercel deployment
+# Python utility modules - should not be treated as serverless functions
+api/utils/
+api/__pycache__/
+
+# Test files
 tests/
+*.pyc
+__pycache__/
 
-# Exclude Python cache files
-**/__pycache__/
-**/*.pyc
-**/*.pyo
-**/*.pyd
-
-# Exclude pytest cache
+# Development files
+*.py[cod]
+*$py.class
 .pytest_cache/
 
-# Exclude Python virtual environments
+# Environment and local config
+.env
+.env.local
 venv/
 env/
-.venv/
-
-# Exclude development files
-*.log
-.env.local
-
