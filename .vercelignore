@@ -1,19 +1,9 @@
-# Python utility modules - should not be treated as serverless functions
-api/utils/
-api/__pycache__/
-
 # Test files
 tests/
-*.pyc
-__pycache__/
-
-# Development files
-*.py[cod]
-*$py.class
-.pytest_cache/
 
 # Environment and local config
 .env
 .env.local
-venv/
-env/
+
+# Node modules (already ignored by default but explicit)
+node_modules/

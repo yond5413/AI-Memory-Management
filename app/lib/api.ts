@@ -28,6 +28,11 @@ export interface LineageResponse {
   related_memories: Memory[];
 }
 
+export interface GraphResponse {
+  memories: Memory[];
+  relationships: Relationship[];
+}
+
 export interface CreateMemoryRequest {
   content: string;
   metadata?: Record<string, any>;
@@ -118,6 +123,15 @@ export async function deriveMemory(memoryIds: string[]): Promise<Memory> {
   });
   if (!response.ok) {
     throw new Error(`Failed to derive memory: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/** Get all memories and relationships for graph visualization */
+export async function getAllMemoriesGraph(): Promise<GraphResponse> {
+  const response = await fetch(`${API_BASE_URL}/memories/graph`);
+  if (!response.ok) {
+    throw new Error(`Failed to get graph data: ${response.statusText}`);
   }
   return response.json();
 }

@@ -18,7 +18,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="mx-auto px-4 py-8" style={{ maxWidth: "1600px" }}>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <MemoryCreator onMemoryCreated={(memory) => setSelectedMemory(memory)} />
           <SearchPanel onMemorySelect={(memory) => setSelectedMemory(memory)} />
