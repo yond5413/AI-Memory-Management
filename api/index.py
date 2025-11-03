@@ -7,14 +7,14 @@ import io
 from pypdf import PdfReader
 
 # Import from utils
-from api.utils.models.memory import MemoryCreate, MemoryResponse, MemoryStatus
-from api.utils.models.relationship import RelationshipCreate, RelationshipResponse, RelationshipType
-from api.utils.services.mongo_client import get_db
-from api.utils.services.memory_service import create_memory_service
-from api.utils.services.relationship_service import create_relationship_service
-from api.utils.services.embeddings import create_embedding
-from api.utils.services.pinecone_client import search_embeddings
-from api.utils.services.llm import derive_insight
+from .utils.models.memory import MemoryCreate, MemoryResponse, MemoryStatus
+from .utils.models.relationship import RelationshipCreate, RelationshipResponse, RelationshipType
+from .utils.services.mongo_client import get_db
+from .utils.services.memory_service import create_memory_service
+from .utils.services.relationship_service import create_relationship_service
+from .utils.services.embeddings import create_embedding
+from .utils.services.pinecone_client import search_embeddings
+from .utils.services.llm import derive_insight
 
 app = FastAPI(title="Semantic Memory API", version="0.1.0")
 
