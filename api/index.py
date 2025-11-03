@@ -32,8 +32,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create API router (no prefix needed - Vercel routes /api/* to this function)
-api_router = APIRouter()
+# Create API router with /api prefix to match frontend calls
+api_router = APIRouter(prefix="/api")
 
 
 # Memory routes
