@@ -1,9 +1,27 @@
 /** API route for semantic search. */
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/services/mongodb';
+import { executeRead } from '@/app/lib/services/neo4j';
 import { createQueryEmbedding } from '@/app/lib/services/embeddings';
 import { searchEmbeddings } from '@/app/lib/services/pinecone';
-import { Memory } from '@/app/lib/types';
+import { Memory, MemoryStatus } from '@/app/lib/types';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
+
+interface Neo4jMemoryNode {
+  m: {
+    properties: {
+      id: string;
+      content: string;
+      vector_id: string;
+      status: string;
+      supersedes: string | null;
+      superseded_by: string | null;
+      entity_id: string | null;
+      metadata: string;
+      created_at: string;
+    };
+  };
+}
 
 /**
  * GET /api/search?q=query
@@ -11,6 +29,16 @@ import { Memory } from '@/app/lib/types';
  */
 export async function GET(request: NextRequest) {
   try {
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    
+    // Get user's namespace
+    const { graphNamespace, pineconeNamespace } = await ensureUserNamespace(userId);
+    
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get('q');
     
@@ -21,14 +49,12 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    const db = getDb();
-    
     try {
       // Create embedding for query
       const queryEmbedding = await createQueryEmbedding(query);
       
-      // Search Pinecone
-      const results = await searchEmbeddings(queryEmbedding, 10);
+      // Search Pinecone with user's namespace
+      const results = await searchEmbeddings(queryEmbedding, 10, pineconeNamespace);
       
       // Extract memory IDs from results
       const memoryIds = results
@@ -39,57 +65,73 @@ export async function GET(request: NextRequest) {
         return NextResponse.json([]);
       }
       
-      // Fetch memories from MongoDB
-      const memoriesRaw = await db
-        .collection('memories')
-        .find({ _id: { $in: memoryIds } } as any)
-        .toArray();
+      // Fetch memories from Neo4j with namespace filtering
+      const cypher = `
+        MATCH (m:Memory {namespace: $namespace})
+        WHERE m.id IN $memoryIds
+        RETURN m
+      `;
       
-      // Sort by Pinecone score (maintain order from results)
+      const memoriesResults = await executeRead<Neo4jMemoryNode>(cypher, { 
+        memoryIds,
+        namespace: graphNamespace,
+      });
+      
+      // Create a map for quick lookup
       const memoryMap = new Map(
-        memoriesRaw.map((mem) => [String(mem._id), mem])
+        memoriesResults.map((result) => [result.m.properties.id, result.m.properties])
       );
       
+      // Sort by Pinecone score (maintain order from results)
       const sortedMemories = memoryIds
         .map((id) => memoryMap.get(id))
         .filter((mem): mem is NonNullable<typeof mem> => mem !== undefined);
       
       const memories: Memory[] = sortedMemories.map((mem) => ({
-        id: String(mem._id),
+        id: mem.id,
         content: mem.content,
-        embedding_id: mem.embedding_id,
-        status: mem.status,
+        embedding_id: mem.vector_id,
+        status: mem.status as MemoryStatus,
         supersedes: mem.supersedes,
         superseded_by: mem.superseded_by,
         entity_id: mem.entity_id,
-        metadata: mem.metadata,
+        metadata: JSON.parse(mem.metadata),
         created_at: mem.created_at,
       }));
       
       return NextResponse.json(memories);
     } catch (error) {
-      // Fallback to simple text search if vector search fails
-      console.warn('Semantic search failed, falling back to text search:', error);
+      // Fallback to simple query if vector search fails
+      console.warn('Semantic search failed, falling back to current memories:', error);
       
-      const memories = await db
-        .collection('memories')
-        .find({ status: 'current' })
-        .limit(10)
-        .toArray();
+      const cypher = `
+        MATCH (m:Memory {status: $status, namespace: $namespace})
+        RETURN m
+        ORDER BY m.created_at DESC
+        LIMIT 10
+      `;
       
-      const result: Memory[] = memories.map((mem) => ({
-        id: String(mem._id),
-        content: mem.content,
-        embedding_id: mem.embedding_id,
-        status: mem.status,
-        supersedes: mem.supersedes,
-        superseded_by: mem.superseded_by,
-        entity_id: mem.entity_id,
-        metadata: mem.metadata,
-        created_at: mem.created_at,
-      }));
+      const results = await executeRead<Neo4jMemoryNode>(cypher, { 
+        status: MemoryStatus.CURRENT,
+        namespace: graphNamespace,
+      });
       
-      return NextResponse.json(result);
+      const memories: Memory[] = results.map((result) => {
+        const mem = result.m.properties;
+        return {
+          id: mem.id,
+          content: mem.content,
+          embedding_id: mem.vector_id,
+          status: mem.status as MemoryStatus,
+          supersedes: mem.supersedes,
+          superseded_by: mem.superseded_by,
+          entity_id: mem.entity_id,
+          metadata: JSON.parse(mem.metadata),
+          created_at: mem.created_at,
+        };
+      });
+      
+      return NextResponse.json(memories);
     }
   } catch (error) {
     console.error('Error in search:', error);

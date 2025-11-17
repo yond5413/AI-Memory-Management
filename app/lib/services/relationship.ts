@@ -1,13 +1,25 @@
 /** Relationship service functions. */
-import { getDb } from './mongodb';
+import { executeWrite, executeRead } from './neo4j';
 import { genId } from '../utils';
 import {
   Relationship,
   RelationshipCreate,
-  RelationshipDocument,
   RelationshipType,
   MemoryStatus,
 } from '../types';
+
+interface Neo4jRelationship {
+  r: {
+    properties: {
+      id: string;
+      description: string | null;
+      created_at: string;
+    };
+  };
+  fromId: string;
+  toId: string;
+  type: string;
+}
 
 /**
  * Create a relationship between two memories.
@@ -16,50 +28,88 @@ export async function createRelationship(
   fromMemoryId: string,
   relationship: RelationshipCreate
 ): Promise<Relationship> {
-  const db = getDb();
-  
   // Generate relationship ID
   const relationshipId = genId('rel');
+  const now = new Date().toISOString();
+  
+  // Determine relationship type label
+  const relType = relationship.type.toUpperCase();
   
   // Handle UPDATE relationship type (marks old memory as outdated)
   if (relationship.type === RelationshipType.UPDATE) {
-    await db.collection('memories').updateOne(
-      { _id: fromMemoryId } as any,
-      {
-        $set: {
-          status: MemoryStatus.OUTDATED,
-          superseded_by: relationship.to,
-        },
-      }
-    );
+    const updateCypher = `
+      MATCH (from:Memory {id: $fromId})
+      MATCH (to:Memory {id: $toId})
+      SET from.status = $status,
+          from.superseded_by = $toId,
+          from.updated_at = datetime($updated_at)
+      SET to.supersedes = $fromId,
+          to.updated_at = datetime($updated_at)
+      MERGE (from)-[r:UPDATES {
+        id: $id,
+        description: $description,
+        created_at: datetime($created_at)
+      }]->(to)
+      RETURN r, from.id as fromId, to.id as toId, type(r) as type
+    `;
     
-    await db.collection('memories').updateOne(
-      { _id: relationship.to } as any,
-      { $set: { supersedes: fromMemoryId } }
-    );
+    const results = await executeWrite<Neo4jRelationship>(updateCypher, {
+      fromId: fromMemoryId,
+      toId: relationship.to,
+      status: MemoryStatus.OUTDATED,
+      id: relationshipId,
+      description: relationship.description || null,
+      created_at: now,
+      updated_at: now,
+    });
+    
+    if (results.length === 0) {
+      throw new Error('Failed to create UPDATE relationship');
+    }
+    
+    const result = results[0];
+    return {
+      id: result.r.properties.id,
+      from_memory: result.fromId,
+      to_memory: result.toId,
+      type: relationship.type,
+      description: result.r.properties.description,
+      created_at: result.r.properties.created_at,
+    };
   }
   
-  // Create relationship document
-  const relationshipDoc: RelationshipDocument = {
-    _id: relationshipId,
-    from_memory: fromMemoryId,
-    to_memory: relationship.to,
-    type: relationship.type,
-    description: relationship.description || null,
-    created_at: new Date(),
-  };
+  // Create other relationship types (EXTEND, DERIVE)
+  const cypher = `
+    MATCH (from:Memory {id: $fromId})
+    MATCH (to:Memory {id: $toId})
+    MERGE (from)-[r:${relType} {
+      id: $id,
+      description: $description,
+      created_at: datetime($created_at)
+    }]->(to)
+    RETURN r, from.id as fromId, to.id as toId, type(r) as type
+  `;
   
-  // Insert into MongoDB
-  await db.collection('relationships').insertOne(relationshipDoc as any);
-  
-  // Return response
-  return {
+  const results = await executeWrite<Neo4jRelationship>(cypher, {
+    fromId: fromMemoryId,
+    toId: relationship.to,
     id: relationshipId,
-    from_memory: relationshipDoc.from_memory,
-    to_memory: relationshipDoc.to_memory,
-    type: relationshipDoc.type,
-    description: relationshipDoc.description,
-    created_at: relationshipDoc.created_at,
+    description: relationship.description || null,
+    created_at: now,
+  });
+  
+  if (results.length === 0) {
+    throw new Error('Failed to create relationship');
+  }
+  
+  const result = results[0];
+  return {
+    id: result.r.properties.id,
+    from_memory: result.fromId,
+    to_memory: result.toId,
+    type: relationship.type,
+    description: result.r.properties.description,
+    created_at: result.r.properties.created_at,
   };
 }
 
@@ -69,23 +119,26 @@ export async function createRelationship(
 export async function getRelationship(
   relationshipId: string
 ): Promise<Relationship | null> {
-  const db = getDb();
+  const cypher = `
+    MATCH (from:Memory)-[r]->(to:Memory)
+    WHERE r.id = $id
+    RETURN r, from.id as fromId, to.id as toId, type(r) as type
+  `;
   
-  const relationshipDoc = await db
-    .collection('relationships')
-    .findOne({ _id: relationshipId } as any);
+  const results = await executeRead<Neo4jRelationship>(cypher, { id: relationshipId });
   
-  if (!relationshipDoc) {
+  if (results.length === 0) {
     return null;
   }
   
+  const result = results[0];
   return {
-    id: String(relationshipDoc._id),
-    from_memory: relationshipDoc.from_memory,
-    to_memory: relationshipDoc.to_memory,
-    type: relationshipDoc.type,
-    description: relationshipDoc.description,
-    created_at: relationshipDoc.created_at,
+    id: result.r.properties.id,
+    from_memory: result.fromId,
+    to_memory: result.toId,
+    type: result.type.toLowerCase() as RelationshipType,
+    description: result.r.properties.description,
+    created_at: result.r.properties.created_at,
   };
 }
 
@@ -95,22 +148,28 @@ export async function getRelationship(
 export async function getMemoryRelationships(
   memoryId: string
 ): Promise<Relationship[]> {
-  const db = getDb();
+  const cypher = `
+    MATCH (m:Memory {id: $id})
+    OPTIONAL MATCH (m)-[r_out]->(other_out:Memory)
+    OPTIONAL MATCH (other_in:Memory)-[r_in]->(m)
+    WITH 
+      COLLECT({r: r_out, fromId: m.id, toId: other_out.id, type: type(r_out)}) +
+      COLLECT({r: r_in, fromId: other_in.id, toId: m.id, type: type(r_in)}) as allRels
+    UNWIND allRels as rel
+    WITH rel
+    WHERE rel.r IS NOT NULL
+    RETURN rel.r as r, rel.fromId as fromId, rel.toId as toId, rel.type as type
+  `;
   
-  const relationships = await db
-    .collection('relationships')
-    .find({
-      $or: [{ from_memory: memoryId }, { to_memory: memoryId }],
-    })
-    .toArray();
+  const results = await executeRead<Neo4jRelationship>(cypher, { id: memoryId });
   
-  return relationships.map((doc) => ({
-    id: String(doc._id),
-    from_memory: doc.from_memory,
-    to_memory: doc.to_memory,
-    type: doc.type,
-    description: doc.description,
-    created_at: doc.created_at,
+  return results.map((result) => ({
+    id: result.r.properties.id,
+    from_memory: result.fromId,
+    to_memory: result.toId,
+    type: result.type.toLowerCase() as RelationshipType,
+    description: result.r.properties.description,
+    created_at: result.r.properties.created_at,
   }));
 }
 
@@ -118,8 +177,12 @@ export async function getMemoryRelationships(
  * Delete a relationship.
  */
 export async function deleteRelationship(relationshipId: string): Promise<void> {
-  const db = getDb();
+  const cypher = `
+    MATCH ()-[r]->()
+    WHERE r.id = $id
+    DELETE r
+  `;
   
-  await db.collection('relationships').deleteOne({ _id: relationshipId } as any);
+  await executeWrite(cypher, { id: relationshipId });
 }
 

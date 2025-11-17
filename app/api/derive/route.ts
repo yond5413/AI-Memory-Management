@@ -1,10 +1,28 @@
 /** API route for deriving insights from multiple memories. */
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/services/mongodb';
+import { executeRead } from '@/app/lib/services/neo4j';
 import { createMemory } from '@/app/lib/services/memory';
 import { createRelationship } from '@/app/lib/services/relationship';
 import { deriveInsight } from '@/app/lib/services/llm';
-import { MemoryCreate, RelationshipCreate, RelationshipType } from '@/app/lib/types';
+import { MemoryCreate, RelationshipCreate, RelationshipType, MemoryStatus } from '@/app/lib/types';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
+
+interface Neo4jMemoryNode {
+  m: {
+    properties: {
+      id: string;
+      content: string;
+      vector_id: string;
+      status: string;
+      supersedes: string | null;
+      superseded_by: string | null;
+      entity_id: string | null;
+      metadata: string;
+      created_at: string;
+    };
+  };
+}
 
 /**
  * POST /api/derive
@@ -12,6 +30,16 @@ import { MemoryCreate, RelationshipCreate, RelationshipType } from '@/app/lib/ty
  */
 export async function POST(request: NextRequest) {
   try {
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    
+    // Get user's namespace
+    const { graphNamespace } = await ensureUserNamespace(userId);
+    
     const memoryIds: string[] = await request.json();
     
     // Validate input
@@ -22,15 +50,19 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const db = getDb();
+    // Verify all memories exist and belong to user
+    const cypher = `
+      MATCH (m:Memory {namespace: $namespace})
+      WHERE m.id IN $memoryIds
+      RETURN m
+    `;
     
-    // Verify all memories exist
-    const memories = await db
-      .collection('memories')
-      .find({ _id: { $in: memoryIds } } as any)
-      .toArray();
+    const results = await executeRead<Neo4jMemoryNode>(cypher, { 
+      memoryIds,
+      namespace: graphNamespace,
+    });
     
-    if (memories.length !== memoryIds.length) {
+    if (results.length !== memoryIds.length) {
       return NextResponse.json(
         { error: 'One or more memories not found' },
         { status: 404 }
@@ -38,7 +70,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Extract memory contents
-    const memoryContents = memories.map((mem) => mem.content);
+    const memoryContents = results.map((result) => result.m.properties.content);
     
     // Derive insight using LLM
     const derivedContent = await deriveInsight(memoryContents);
@@ -52,7 +84,7 @@ export async function POST(request: NextRequest) {
       },
     };
     
-    const derivedMemory = await createMemory(memoryCreate);
+    const derivedMemory = await createMemory(memoryCreate, userId, graphNamespace);
     
     // Create derive relationships
     for (const memoryId of memoryIds) {

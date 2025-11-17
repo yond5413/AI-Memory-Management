@@ -1,11 +1,42 @@
 /** API route for getting all memories and relationships for graph visualization. */
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/services/mongodb';
-import { Memory, Relationship } from '@/app/lib/types';
+import { executeRead } from '@/app/lib/services/neo4j';
+import { Memory, Relationship, RelationshipType, MemoryStatus } from '@/app/lib/types';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
 
 export interface GraphResponse {
   memories: Memory[];
   relationships: Relationship[];
+}
+
+interface Neo4jMemoryNode {
+  m: {
+    properties: {
+      id: string;
+      content: string;
+      vector_id: string;
+      status: string;
+      supersedes: string | null;
+      superseded_by: string | null;
+      entity_id: string | null;
+      metadata: string;
+      created_at: string;
+    };
+  };
+}
+
+interface Neo4jRelationshipResult {
+  r: {
+    properties: {
+      id: string;
+      description: string | null;
+      created_at: string;
+    };
+  };
+  fromId: string;
+  toId: string;
+  type: string;
 }
 
 /**
@@ -14,40 +45,59 @@ export interface GraphResponse {
  */
 export async function GET(request: NextRequest) {
   try {
-    const db = getDb();
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
     
-    // Fetch all memories
-    const memoriesRaw = await db
-      .collection('memories')
-      .find({})
-      .toArray();
+    // Get user's namespace
+    const { graphNamespace } = await ensureUserNamespace(userId);
     
-    // Fetch all relationships
-    const relationshipsRaw = await db
-      .collection('relationships')
-      .find({})
-      .toArray();
+    // Fetch all memories for user's namespace
+    const memoriesCypher = `
+      MATCH (m:Memory {namespace: $namespace})
+      RETURN m
+      ORDER BY m.created_at DESC
+    `;
     
-    // Convert to response format
-    const memories: Memory[] = memoriesRaw.map((mem) => ({
-      id: String(mem._id),
-      content: mem.content,
-      embedding_id: mem.embedding_id,
-      status: mem.status,
-      supersedes: mem.supersedes,
-      superseded_by: mem.superseded_by,
-      entity_id: mem.entity_id,
-      metadata: mem.metadata,
-      created_at: mem.created_at,
-    }));
+    const memoriesResults = await executeRead<Neo4jMemoryNode>(memoriesCypher, {
+      namespace: graphNamespace,
+    });
     
-    const relationships: Relationship[] = relationshipsRaw.map((rel) => ({
-      id: String(rel._id),
-      from_memory: rel.from_memory,
-      to_memory: rel.to_memory,
-      type: rel.type,
-      description: rel.description,
-      created_at: rel.created_at,
+    const memories: Memory[] = memoriesResults.map((result) => {
+      const node = result.m.properties;
+      return {
+        id: node.id,
+        content: node.content,
+        embedding_id: node.vector_id,
+        status: node.status as MemoryStatus,
+        supersedes: node.supersedes,
+        superseded_by: node.superseded_by,
+        entity_id: node.entity_id,
+        metadata: JSON.parse(node.metadata),
+        created_at: node.created_at,
+      };
+    });
+    
+    // Fetch all relationships for user's namespace
+    const relationshipsCypher = `
+      MATCH (from:Memory {namespace: $namespace})-[r]->(to:Memory {namespace: $namespace})
+      RETURN r, from.id as fromId, to.id as toId, type(r) as type
+    `;
+    
+    const relationshipsResults = await executeRead<Neo4jRelationshipResult>(relationshipsCypher, {
+      namespace: graphNamespace,
+    });
+    
+    const relationships: Relationship[] = relationshipsResults.map((result) => ({
+      id: result.r.properties.id,
+      from_memory: result.fromId,
+      to_memory: result.toId,
+      type: result.type.toLowerCase() as RelationshipType,
+      description: result.r.properties.description,
+      created_at: result.r.properties.created_at,
     }));
     
     const response: GraphResponse = {

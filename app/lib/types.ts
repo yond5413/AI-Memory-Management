@@ -115,6 +115,8 @@ export interface PineconeMetadata {
   memory_id: string;
   content: string;
   status: string;
+  namespace?: string;
+  user_id?: string;
 }
 
 export interface PineconeMatch {
@@ -122,4 +124,37 @@ export interface PineconeMatch {
   score: number;
   metadata: PineconeMetadata | Record<string, any>;
 }
+
+// ==================== User & Auth Types ====================
+
+export interface User {
+  id: string;
+}
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Namespace {
+  id: string;
+  user_id: string;
+  pinecone_namespace: string;
+  graph_namespace: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface UserSettings {
+  user_id: string;
+  embedding_model: string;
+  llm_model: string;
+  memory_rules: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
 

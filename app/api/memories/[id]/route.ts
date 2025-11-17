@@ -1,6 +1,8 @@
 /** API route for getting a memory by ID. */
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemory } from '@/app/lib/services/memory';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
 
 /**
  * GET /api/memories/:id
@@ -11,9 +13,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    
+    // Get user's namespace
+    const { graphNamespace } = await ensureUserNamespace(userId);
+    
     const { id } = await params;
     
-    const memory = await getMemory(id);
+    const memory = await getMemory(id, graphNamespace);
     
     if (!memory) {
       return NextResponse.json(
@@ -31,4 +43,5 @@ export async function GET(
     );
   }
 }
+
 

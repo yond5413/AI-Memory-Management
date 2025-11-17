@@ -1,8 +1,39 @@
 /** API route for getting memory lineage. */
 import { NextRequest, NextResponse } from 'next/server';
 import { getMemory } from '@/app/lib/services/memory';
-import { getDb } from '@/app/lib/services/mongodb';
-import { Memory, Relationship, LineageResponse } from '@/app/lib/types';
+import { executeRead } from '@/app/lib/services/neo4j';
+import { Memory, Relationship, LineageResponse, RelationshipType, MemoryStatus } from '@/app/lib/types';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
+
+interface Neo4jMemoryNode {
+  m: {
+    properties: {
+      id: string;
+      content: string;
+      vector_id: string;
+      status: string;
+      supersedes: string | null;
+      superseded_by: string | null;
+      entity_id: string | null;
+      metadata: string;
+      created_at: string;
+    };
+  };
+}
+
+interface Neo4jRelationshipResult {
+  r: {
+    properties: {
+      id: string;
+      description: string | null;
+      created_at: string;
+    };
+  };
+  fromId: string;
+  toId: string;
+  type: string;
+}
 
 /**
  * GET /api/memories/:id/lineage
@@ -13,11 +44,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    
+    // Get user's namespace
+    const { graphNamespace } = await ensureUserNamespace(userId);
+    
     const { id: memoryId } = await params;
-    const db = getDb();
     
     // Find memory
-    const memory = await getMemory(memoryId);
+    const memory = await getMemory(memoryId, graphNamespace);
     
     if (!memory) {
       return NextResponse.json(
@@ -26,48 +66,58 @@ export async function GET(
       );
     }
     
-    // Find all relationships involving this memory
-    const relationshipsRaw = await db
-      .collection('relationships')
-      .find({
-        $or: [{ from_memory: memoryId }, { to_memory: memoryId }],
-      })
-      .toArray();
+    // Find all relationships and related memories using graph traversal
+    const cypher = `
+      MATCH (m:Memory {id: $id, namespace: $namespace})
+      OPTIONAL MATCH (m)-[r_out]->(other_out:Memory {namespace: $namespace})
+      OPTIONAL MATCH (other_in:Memory {namespace: $namespace})-[r_in]->(m)
+      WITH m,
+        COLLECT(DISTINCT {r: r_out, fromId: m.id, toId: other_out.id, type: type(r_out)}) +
+        COLLECT(DISTINCT {r: r_in, fromId: other_in.id, toId: m.id, type: type(r_in)}) as allRels,
+        COLLECT(DISTINCT other_out) + COLLECT(DISTINCT other_in) as allMemories
+      UNWIND allRels as rel
+      WITH m, rel, allMemories
+      WHERE rel.r IS NOT NULL
+      WITH COLLECT(DISTINCT {r: rel.r, fromId: rel.fromId, toId: rel.toId, type: rel.type}) as relationships, allMemories
+      UNWIND allMemories as mem
+      WITH relationships, COLLECT(DISTINCT mem) as memories
+      RETURN relationships, memories
+    `;
     
-    // Get all related memory IDs
-    const relatedIds = new Set<string>();
-    relationshipsRaw.forEach((rel) => {
-      relatedIds.add(rel.from_memory);
-      relatedIds.add(rel.to_memory);
-    });
+    const results = await executeRead<{
+      relationships: Neo4jRelationshipResult[];
+      memories: Array<{ properties: Neo4jMemoryNode['m']['properties'] }>;
+    }>(cypher, { id: memoryId, namespace: graphNamespace });
     
-    // Fetch all related memories
-    const relatedMemoriesRaw = await db
-      .collection('memories')
-      .find({ _id: { $in: Array.from(relatedIds) } } as any)
-      .toArray();
+    let relationships: Relationship[] = [];
+    let relatedMemories: Memory[] = [];
     
-    // Convert to response format
-    const relatedMemories: Memory[] = relatedMemoriesRaw.map((mem) => ({
-      id: String(mem._id),
-      content: mem.content,
-      embedding_id: mem.embedding_id,
-      status: mem.status,
-      supersedes: mem.supersedes,
-      superseded_by: mem.superseded_by,
-      entity_id: mem.entity_id,
-      metadata: mem.metadata,
-      created_at: mem.created_at,
-    }));
-    
-    const relationships: Relationship[] = relationshipsRaw.map((rel) => ({
-      id: String(rel._id),
-      from_memory: rel.from_memory,
-      to_memory: rel.to_memory,
-      type: rel.type,
-      description: rel.description,
-      created_at: rel.created_at,
-    }));
+    if (results.length > 0 && results[0].relationships) {
+      relationships = results[0].relationships
+        .filter((rel) => rel && rel.r)
+        .map((rel) => ({
+          id: rel.r.properties.id,
+          from_memory: rel.fromId,
+          to_memory: rel.toId,
+          type: rel.type.toLowerCase() as RelationshipType,
+          description: rel.r.properties.description,
+          created_at: rel.r.properties.created_at,
+        }));
+      
+      relatedMemories = results[0].memories
+        .filter((mem) => mem && mem.properties)
+        .map((mem) => ({
+          id: mem.properties.id,
+          content: mem.properties.content,
+          embedding_id: mem.properties.vector_id,
+          status: mem.properties.status as MemoryStatus,
+          supersedes: mem.properties.supersedes,
+          superseded_by: mem.properties.superseded_by,
+          entity_id: mem.properties.entity_id,
+          metadata: JSON.parse(mem.properties.metadata),
+          created_at: mem.properties.created_at,
+        }));
+    }
     
     const response: LineageResponse = {
       memory,

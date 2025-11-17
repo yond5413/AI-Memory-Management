@@ -45,11 +45,14 @@ export function getIndex(): Index {
 export async function upsertEmbedding(
   embeddingId: string,
   vector: number[],
-  metadata: Record<string, any>
+  metadata: Record<string, any>,
+  namespace?: string
 ): Promise<void> {
   const idx = getIndex();
   
-  await idx.upsert([
+  const ns = namespace ? idx.namespace(namespace) : idx;
+  
+  await ns.upsert([
     {
       id: embeddingId,
       values: vector,
@@ -63,11 +66,14 @@ export async function upsertEmbedding(
  */
 export async function searchEmbeddings(
   queryVector: number[],
-  topK: number = 10
+  topK: number = 10,
+  namespace?: string
 ): Promise<PineconeMatch[]> {
   const idx = getIndex();
   
-  const results = await idx.query({
+  const ns = namespace ? idx.namespace(namespace) : idx;
+  
+  const results = await ns.query({
     vector: queryVector,
     topK,
     includeMetadata: true,
@@ -86,8 +92,12 @@ export async function searchEmbeddings(
 /**
  * Delete an embedding from Pinecone.
  */
-export async function deleteEmbedding(embeddingId: string): Promise<void> {
+export async function deleteEmbedding(
+  embeddingId: string,
+  namespace?: string
+): Promise<void> {
   const idx = getIndex();
-  await idx.deleteOne(embeddingId);
+  const ns = namespace ? idx.namespace(namespace) : idx;
+  await ns.deleteOne(embeddingId);
 }
 

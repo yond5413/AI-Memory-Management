@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createMemory } from '@/app/lib/services/memory';
 import { MemoryCreate } from '@/app/lib/types';
 import { extractText, getDocumentProxy } from 'unpdf';
+import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
+import { ensureUserNamespace } from '@/app/lib/services/supabase';
 
 /**
  * POST /api/memories/from-pdf
@@ -10,6 +12,16 @@ import { extractText, getDocumentProxy } from 'unpdf';
  */
 export async function POST(request: NextRequest) {
   try {
+    // Authenticate user
+    const authResult = await requireAuth(request);
+    if (isErrorResponse(authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    
+    // Get user's namespace
+    const { graphNamespace } = await ensureUserNamespace(userId);
+    
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
@@ -44,7 +56,7 @@ export async function POST(request: NextRequest) {
       },
     };
     
-    const memory = await createMemory(memoryCreate);
+    const memory = await createMemory(memoryCreate, userId, graphNamespace);
     
     return NextResponse.json(memory, { status: 201 });
   } catch (error) {

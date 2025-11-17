@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "fastapi-dev": "pip install -r requirements.txt && python -m uvicorn api.index:app --reload",
-    "next-dev": "next dev",
-    "dev": "concurrently \"npm run next-dev\" \"npm run fastapi-dev\"",
+    "dev": "next dev",
+    "dev:all": "concurrently \"npm run next-dev\" \"npm run fastapi-dev\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -13,10 +13,12 @@
   "dependencies": {
     "@napi-rs/canvas": "^0.1.81",
     "@pinecone-database/pinecone": "^6.1.2",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.81.1",
     "@types/dagre": "^0.7.53",
     "cohere-ai": "^7.19.0",
     "dagre": "^0.8.5",
-    "mongodb": "^6.20.0",
+    "neo4j-driver": "^6.0.1",
     "next": "16.0.1",
     "openai": "^6.7.0",
     "react": "19.2.0",

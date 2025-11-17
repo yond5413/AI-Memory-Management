@@ -1,16 +1,35 @@
 /** Memory service functions. */
-import { getDb } from './mongodb';
+import { executeWrite, executeRead } from './neo4j';
 import { createEmbedding } from './embeddings';
 import { upsertEmbedding } from './pinecone';
 import { genId } from '../utils';
-import { Memory, MemoryCreate, MemoryStatus, MemoryDocument } from '../types';
+import { Memory, MemoryCreate, MemoryStatus } from '../types';
+
+interface Neo4jMemoryNode {
+  m: {
+    properties: {
+      id: string;
+      content: string;
+      vector_id: string;
+      status: string;
+      supersedes: string | null;
+      superseded_by: string | null;
+      entity_id: string | null;
+      metadata: string;
+      created_at: string;
+      updated_at: string;
+    };
+  };
+}
 
 /**
  * Create a new memory from text.
  */
-export async function createMemory(memory: MemoryCreate): Promise<Memory> {
-  const db = getDb();
-  
+export async function createMemory(
+  memory: MemoryCreate,
+  userId: string,
+  namespace: string
+): Promise<Memory> {
   // Generate IDs
   const memoryId = genId('mem');
   const embeddingId = genId('vec');
@@ -20,117 +39,175 @@ export async function createMemory(memory: MemoryCreate): Promise<Memory> {
   try {
     embeddingVector = await createEmbedding(memory.content);
     
-    // Store embedding in Pinecone
-    await upsertEmbedding(embeddingId, embeddingVector, {
-      memory_id: memoryId,
-      content: memory.content.substring(0, 200), // Store truncated content
-      status: MemoryStatus.CURRENT,
-    });
+    // Store embedding in Pinecone with namespace
+    await upsertEmbedding(
+      embeddingId,
+      embeddingVector,
+      {
+        memory_id: memoryId,
+        content: memory.content.substring(0, 200), // Store truncated content
+        status: MemoryStatus.CURRENT,
+        namespace,
+        user_id: userId,
+      },
+      namespace
+    );
   } catch (error) {
     // Continue even if embedding fails for MVP
     console.warn('Warning: Embedding creation failed:', error);
   }
   
-  // Create memory document
-  const memoryDoc: MemoryDocument = {
-    _id: memoryId,
+  const now = new Date().toISOString();
+  
+  // Create memory node in Neo4j with user ownership
+  const cypher = `
+    MERGE (u:User {id: $userId})
+    CREATE (m:Memory {
+      id: $id,
+      content: $content,
+      vector_id: $vector_id,
+      status: $status,
+      supersedes: $supersedes,
+      superseded_by: $superseded_by,
+      entity_id: $entity_id,
+      namespace: $namespace,
+      metadata: $metadata,
+      created_at: datetime($created_at),
+      updated_at: datetime($updated_at)
+    })
+    CREATE (u)-[:OWNS]->(m)
+    RETURN m
+  `;
+  
+  const results = await executeWrite<Neo4jMemoryNode>(cypher, {
+    userId,
+    id: memoryId,
     content: memory.content,
-    embedding_id: embeddingId,
+    vector_id: embeddingId,
     status: MemoryStatus.CURRENT,
     supersedes: null,
     superseded_by: null,
     entity_id: null,
-    metadata: memory.metadata || {},
-    created_at: new Date(),
-  };
+    namespace,
+    metadata: JSON.stringify(memory.metadata || {}),
+    created_at: now,
+    updated_at: now,
+  });
   
-  // Insert into MongoDB
-  await db.collection('memories').insertOne(memoryDoc as any);
+  if (results.length === 0) {
+    throw new Error('Failed to create memory node');
+  }
+  
+  const node = results[0].m.properties;
   
   // Return response
   return {
-    id: memoryId,
-    content: memoryDoc.content,
-    embedding_id: memoryDoc.embedding_id,
-    status: memoryDoc.status,
-    supersedes: memoryDoc.supersedes,
-    superseded_by: memoryDoc.superseded_by,
-    entity_id: memoryDoc.entity_id,
-    metadata: memoryDoc.metadata,
-    created_at: memoryDoc.created_at,
+    id: node.id,
+    content: node.content,
+    embedding_id: node.vector_id,
+    status: node.status as MemoryStatus,
+    supersedes: node.supersedes,
+    superseded_by: node.superseded_by,
+    entity_id: node.entity_id,
+    metadata: JSON.parse(node.metadata),
+    created_at: node.created_at,
   };
 }
 
 /**
- * Get a memory by ID.
+ * Get a memory by ID (with optional namespace filtering).
  */
-export async function getMemory(memoryId: string): Promise<Memory | null> {
-  const db = getDb();
+export async function getMemory(
+  memoryId: string,
+  namespace?: string
+): Promise<Memory | null> {
+  const cypher = namespace
+    ? `MATCH (m:Memory {id: $id, namespace: $namespace}) RETURN m`
+    : `MATCH (m:Memory {id: $id}) RETURN m`;
   
-  const memoryDoc = await db.collection('memories').findOne({ _id: memoryId } as any);
+  const results = await executeRead<Neo4jMemoryNode>(cypher, { 
+    id: memoryId,
+    ...(namespace && { namespace }),
+  });
   
-  if (!memoryDoc) {
+  if (results.length === 0) {
     return null;
   }
   
+  const node = results[0].m.properties;
+  
   return {
-    id: String(memoryDoc._id),
-    content: memoryDoc.content,
-    embedding_id: memoryDoc.embedding_id,
-    status: memoryDoc.status,
-    supersedes: memoryDoc.supersedes,
-    superseded_by: memoryDoc.superseded_by,
-    entity_id: memoryDoc.entity_id,
-    metadata: memoryDoc.metadata,
-    created_at: memoryDoc.created_at,
+    id: node.id,
+    content: node.content,
+    embedding_id: node.vector_id,
+    status: node.status as MemoryStatus,
+    supersedes: node.supersedes,
+    superseded_by: node.superseded_by,
+    entity_id: node.entity_id,
+    metadata: JSON.parse(node.metadata),
+    created_at: node.created_at,
   };
 }
 
 /**
- * Get all memories.
+ * Get all memories (filtered by namespace if provided).
  */
-export async function getAllMemories(): Promise<Memory[]> {
-  const db = getDb();
+export async function getAllMemories(namespace?: string): Promise<Memory[]> {
+  const cypher = namespace
+    ? `MATCH (m:Memory {namespace: $namespace}) RETURN m ORDER BY m.created_at DESC`
+    : `MATCH (m:Memory) RETURN m ORDER BY m.created_at DESC`;
   
-  const memories = await db
-    .collection('memories')
-    .find({})
-    .toArray();
+  const results = await executeRead<Neo4jMemoryNode>(cypher, {
+    ...(namespace && { namespace }),
+  });
   
-  return memories.map((doc) => ({
-    id: String(doc._id),
-    content: doc.content,
-    embedding_id: doc.embedding_id,
-    status: doc.status,
-    supersedes: doc.supersedes,
-    superseded_by: doc.superseded_by,
-    entity_id: doc.entity_id,
-    metadata: doc.metadata,
-    created_at: doc.created_at,
-  }));
+  return results.map((result) => {
+    const node = result.m.properties;
+    return {
+      id: node.id,
+      content: node.content,
+      embedding_id: node.vector_id,
+      status: node.status as MemoryStatus,
+      supersedes: node.supersedes,
+      superseded_by: node.superseded_by,
+      entity_id: node.entity_id,
+      metadata: JSON.parse(node.metadata),
+      created_at: node.created_at,
+    };
+  });
 }
 
 /**
- * Update a memory's status.
+ * Update a memory's status (with optional namespace filtering).
  */
 export async function updateMemoryStatus(
   memoryId: string,
-  status: MemoryStatus
+  status: MemoryStatus,
+  namespace?: string
 ): Promise<void> {
-  const db = getDb();
+  const cypher = namespace
+    ? `MATCH (m:Memory {id: $id, namespace: $namespace}) SET m.status = $status, m.updated_at = datetime($updated_at)`
+    : `MATCH (m:Memory {id: $id}) SET m.status = $status, m.updated_at = datetime($updated_at)`;
   
-  await db.collection('memories').updateOne(
-    { _id: memoryId } as any,
-    { $set: { status } }
-  );
+  await executeWrite(cypher, {
+    id: memoryId,
+    status,
+    updated_at: new Date().toISOString(),
+    ...(namespace && { namespace }),
+  });
 }
 
 /**
- * Delete a memory.
+ * Delete a memory (with optional namespace filtering).
  */
-export async function deleteMemory(memoryId: string): Promise<void> {
-  const db = getDb();
+export async function deleteMemory(memoryId: string, namespace?: string): Promise<void> {
+  const cypher = namespace
+    ? `MATCH (m:Memory {id: $id, namespace: $namespace}) DETACH DELETE m`
+    : `MATCH (m:Memory {id: $id}) DETACH DELETE m`;
   
-  await db.collection('memories').deleteOne({ _id: memoryId } as any);
+  await executeWrite(cypher, { 
+    id: memoryId,
+    ...(namespace && { namespace }),
+  });
 }
 

@@ -1,5 +1,25 @@
 /** API client functions for communicating with the backend. */
+import { createClient } from './supabase/client';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+
+/**
+ * Get auth headers for API requests
+ */
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
+  return headers;
+}
 
 export interface Memory {
   id: string;
@@ -46,9 +66,10 @@ export interface CreateRelationshipRequest {
 
 /** Create a memory from text */
 export async function createMemory(data: CreateMemoryRequest): Promise<Memory> {
+  const headers = await getAuthHeaders();
   const response = await fetch(`${API_BASE_URL}/memories`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(data),
   });
   if (!response.ok) {
@@ -59,10 +80,20 @@ export async function createMemory(data: CreateMemoryRequest): Promise<Memory> {
 
 /** Create a memory from PDF file */
 export async function createMemoryFromPDF(file: File): Promise<Memory> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
   const formData = new FormData();
   formData.append("file", file);
+  
+  const headers: HeadersInit = {};
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
   const response = await fetch(`${API_BASE_URL}/memories/from-pdf`, {
     method: "POST",
+    headers,
     body: formData,
   });
   if (!response.ok) {
@@ -73,7 +104,8 @@ export async function createMemoryFromPDF(file: File): Promise<Memory> {
 
 /** Get a memory by ID */
 export async function getMemory(id: string): Promise<Memory> {
-  const response = await fetch(`${API_BASE_URL}/memories/${id}`);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/memories/${id}`, { headers });
   if (!response.ok) {
     throw new Error(`Failed to get memory: ${response.statusText}`);
   }
@@ -82,7 +114,8 @@ export async function getMemory(id: string): Promise<Memory> {
 
 /** Get memory lineage */
 export async function getMemoryLineage(id: string): Promise<LineageResponse> {
-  const response = await fetch(`${API_BASE_URL}/memories/${id}/lineage`);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/memories/${id}/lineage`, { headers });
   if (!response.ok) {
     throw new Error(`Failed to get lineage: ${response.statusText}`);
   }
@@ -94,9 +127,10 @@ export async function createRelationship(
   fromMemoryId: string,
   data: CreateRelationshipRequest
 ): Promise<Relationship> {
+  const headers = await getAuthHeaders();
   const response = await fetch(`${API_BASE_URL}/memories/${fromMemoryId}/relationships`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(data),
   });
   if (!response.ok) {
@@ -107,7 +141,8 @@ export async function createRelationship(
 
 /** Semantic search */
 export async function searchMemories(query: string): Promise<Memory[]> {
-  const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`, { headers });
   if (!response.ok) {
     throw new Error(`Failed to search: ${response.statusText}`);
   }
@@ -116,9 +151,10 @@ export async function searchMemories(query: string): Promise<Memory[]> {
 
 /** Derive a memory from existing memories */
 export async function deriveMemory(memoryIds: string[]): Promise<Memory> {
+  const headers = await getAuthHeaders();
   const response = await fetch(`${API_BASE_URL}/derive`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(memoryIds),
   });
   if (!response.ok) {
@@ -129,7 +165,8 @@ export async function deriveMemory(memoryIds: string[]): Promise<Memory> {
 
 /** Get all memories and relationships for graph visualization */
 export async function getAllMemoriesGraph(): Promise<GraphResponse> {
-  const response = await fetch(`${API_BASE_URL}/memories/graph`);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/memories/graph`, { headers });
   if (!response.ok) {
     throw new Error(`Failed to get graph data: ${response.statusText}`);
   }
