@@ -55,4 +55,4 @@ build/
 .vercel
 
 .venv312/
-.cred/
+.cursor/

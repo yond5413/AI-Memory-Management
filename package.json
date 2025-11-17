@@ -5,7 +5,7 @@
   "scripts": {
     "fastapi-dev": "pip install -r requirements.txt && python -m uvicorn api.index:app --reload",
     "dev": "next dev",
-    "dev:all": "concurrently \"npm run next-dev\" \"npm run fastapi-dev\"",
+    "dev:all": "concurrently \"npm run dev\" \"npm run fastapi-dev\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

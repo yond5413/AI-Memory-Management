@@ -4,6 +4,7 @@ import { executeRead } from '@/app/lib/services/neo4j';
 import { Memory, Relationship, RelationshipType, MemoryStatus } from '@/app/lib/types';
 import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
 import { ensureUserNamespace } from '@/app/lib/services/supabase';
+import { normalizeDateTime } from '@/app/lib/utils';
 
 export interface GraphResponse {
   memories: Memory[];
@@ -21,7 +22,7 @@ interface Neo4jMemoryNode {
       superseded_by: string | null;
       entity_id: string | null;
       metadata: string;
-      created_at: string;
+      created_at: any;
     };
   };
 }
@@ -31,7 +32,7 @@ interface Neo4jRelationshipResult {
     properties: {
       id: string;
       description: string | null;
-      created_at: string;
+      created_at: any;
     };
   };
   fromId: string;
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
     const memoriesResults = await executeRead<Neo4jMemoryNode>(memoriesCypher, {
       namespace: graphNamespace,
     });
-    
+
     const memories: Memory[] = memoriesResults.map((result) => {
       const node = result.m.properties;
       return {
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
         superseded_by: node.superseded_by,
         entity_id: node.entity_id,
         metadata: JSON.parse(node.metadata),
-        created_at: node.created_at,
+        created_at: normalizeDateTime(node.created_at),
       };
     });
     
@@ -90,14 +91,14 @@ export async function GET(request: NextRequest) {
     const relationshipsResults = await executeRead<Neo4jRelationshipResult>(relationshipsCypher, {
       namespace: graphNamespace,
     });
-    
+
     const relationships: Relationship[] = relationshipsResults.map((result) => ({
       id: result.r.properties.id,
       from_memory: result.fromId,
       to_memory: result.toId,
       type: result.type.toLowerCase() as RelationshipType,
       description: result.r.properties.description,
-      created_at: result.r.properties.created_at,
+      created_at: normalizeDateTime(result.r.properties.created_at),
     }));
     
     const response: GraphResponse = {

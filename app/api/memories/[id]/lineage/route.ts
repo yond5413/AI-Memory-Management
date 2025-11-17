@@ -5,6 +5,7 @@ import { executeRead } from '@/app/lib/services/neo4j';
 import { Memory, Relationship, LineageResponse, RelationshipType, MemoryStatus } from '@/app/lib/types';
 import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
 import { ensureUserNamespace } from '@/app/lib/services/supabase';
+import { normalizeDateTime } from '@/app/lib/utils';
 
 interface Neo4jMemoryNode {
   m: {
@@ -17,7 +18,7 @@ interface Neo4jMemoryNode {
       superseded_by: string | null;
       entity_id: string | null;
       metadata: string;
-      created_at: string;
+      created_at: any;
     };
   };
 }
@@ -27,7 +28,7 @@ interface Neo4jRelationshipResult {
     properties: {
       id: string;
       description: string | null;
-      created_at: string;
+      created_at: any;
     };
   };
   fromId: string;
@@ -101,9 +102,9 @@ export async function GET(
           to_memory: rel.toId,
           type: rel.type.toLowerCase() as RelationshipType,
           description: rel.r.properties.description,
-          created_at: rel.r.properties.created_at,
+          created_at: normalizeDateTime(rel.r.properties.created_at),
         }));
-      
+
       relatedMemories = results[0].memories
         .filter((mem) => mem && mem.properties)
         .map((mem) => ({
@@ -115,7 +116,7 @@ export async function GET(
           superseded_by: mem.properties.superseded_by,
           entity_id: mem.properties.entity_id,
           metadata: JSON.parse(mem.properties.metadata),
-          created_at: mem.properties.created_at,
+          created_at: normalizeDateTime(mem.properties.created_at),
         }));
     }
     

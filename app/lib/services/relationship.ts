@@ -1,6 +1,6 @@
 /** Relationship service functions. */
 import { executeWrite, executeRead } from './neo4j';
-import { genId } from '../utils';
+import { genId, normalizeDateTime } from '../utils';
 import {
   Relationship,
   RelationshipCreate,
@@ -13,7 +13,7 @@ interface Neo4jRelationship {
     properties: {
       id: string;
       description: string | null;
-      created_at: string;
+      created_at: any;
     };
   };
   fromId: string;
@@ -62,11 +62,11 @@ export async function createRelationship(
       created_at: now,
       updated_at: now,
     });
-    
+
     if (results.length === 0) {
       throw new Error('Failed to create UPDATE relationship');
     }
-    
+
     const result = results[0];
     return {
       id: result.r.properties.id,
@@ -74,7 +74,7 @@ export async function createRelationship(
       to_memory: result.toId,
       type: relationship.type,
       description: result.r.properties.description,
-      created_at: result.r.properties.created_at,
+      created_at: normalizeDateTime(result.r.properties.created_at),
     };
   }
   
@@ -97,11 +97,11 @@ export async function createRelationship(
     description: relationship.description || null,
     created_at: now,
   });
-  
+
   if (results.length === 0) {
     throw new Error('Failed to create relationship');
   }
-  
+
   const result = results[0];
   return {
     id: result.r.properties.id,
@@ -109,7 +109,7 @@ export async function createRelationship(
     to_memory: result.toId,
     type: relationship.type,
     description: result.r.properties.description,
-    created_at: result.r.properties.created_at,
+    created_at: normalizeDateTime(result.r.properties.created_at),
   };
 }
 
@@ -126,11 +126,11 @@ export async function getRelationship(
   `;
   
   const results = await executeRead<Neo4jRelationship>(cypher, { id: relationshipId });
-  
+
   if (results.length === 0) {
     return null;
   }
-  
+
   const result = results[0];
   return {
     id: result.r.properties.id,
@@ -138,7 +138,7 @@ export async function getRelationship(
     to_memory: result.toId,
     type: result.type.toLowerCase() as RelationshipType,
     description: result.r.properties.description,
-    created_at: result.r.properties.created_at,
+    created_at: normalizeDateTime(result.r.properties.created_at),
   };
 }
 
@@ -162,14 +162,14 @@ export async function getMemoryRelationships(
   `;
   
   const results = await executeRead<Neo4jRelationship>(cypher, { id: memoryId });
-  
+
   return results.map((result) => ({
     id: result.r.properties.id,
     from_memory: result.fromId,
     to_memory: result.toId,
     type: result.type.toLowerCase() as RelationshipType,
     description: result.r.properties.description,
-    created_at: result.r.properties.created_at,
+    created_at: normalizeDateTime(result.r.properties.created_at),
   }));
 }
 

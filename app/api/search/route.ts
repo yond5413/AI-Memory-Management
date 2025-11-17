@@ -6,6 +6,7 @@ import { searchEmbeddings } from '@/app/lib/services/pinecone';
 import { Memory, MemoryStatus } from '@/app/lib/types';
 import { requireAuth, isErrorResponse } from '@/app/lib/middleware/auth';
 import { ensureUserNamespace } from '@/app/lib/services/supabase';
+import { normalizeDateTime } from '@/app/lib/utils';
 
 interface Neo4jMemoryNode {
   m: {
@@ -18,7 +19,7 @@ interface Neo4jMemoryNode {
       superseded_by: string | null;
       entity_id: string | null;
       metadata: string;
-      created_at: string;
+      created_at: any;
     };
   };
 }
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
         superseded_by: mem.superseded_by,
         entity_id: mem.entity_id,
         metadata: JSON.parse(mem.metadata),
-        created_at: mem.created_at,
+        created_at: normalizeDateTime(mem.created_at),
       }));
       
       return NextResponse.json(memories);
@@ -115,7 +116,7 @@ export async function GET(request: NextRequest) {
         status: MemoryStatus.CURRENT,
         namespace: graphNamespace,
       });
-      
+
       const memories: Memory[] = results.map((result) => {
         const mem = result.m.properties;
         return {
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
           superseded_by: mem.superseded_by,
           entity_id: mem.entity_id,
           metadata: JSON.parse(mem.metadata),
-          created_at: mem.created_at,
+          created_at: normalizeDateTime(mem.created_at),
         };
       });
       

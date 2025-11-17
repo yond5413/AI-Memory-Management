@@ -2,7 +2,7 @@
 import { executeWrite, executeRead } from './neo4j';
 import { createEmbedding } from './embeddings';
 import { upsertEmbedding } from './pinecone';
-import { genId } from '../utils';
+import { genId, normalizeDateTime } from '../utils';
 import { Memory, MemoryCreate, MemoryStatus } from '../types';
 
 interface Neo4jMemoryNode {
@@ -16,8 +16,8 @@ interface Neo4jMemoryNode {
       superseded_by: string | null;
       entity_id: string | null;
       metadata: string;
-      created_at: string;
-      updated_at: string;
+      created_at: any;
+      updated_at: any;
     };
   };
 }
@@ -58,7 +58,7 @@ export async function createMemory(
   }
   
   const now = new Date().toISOString();
-  
+
   // Create memory node in Neo4j with user ownership
   const cypher = `
     MERGE (u:User {id: $userId})
@@ -78,7 +78,7 @@ export async function createMemory(
     CREATE (u)-[:OWNS]->(m)
     RETURN m
   `;
-  
+
   const results = await executeWrite<Neo4jMemoryNode>(cypher, {
     userId,
     id: memoryId,
@@ -93,14 +93,14 @@ export async function createMemory(
     created_at: now,
     updated_at: now,
   });
-  
+
   if (results.length === 0) {
     throw new Error('Failed to create memory node');
   }
-  
+
   const node = results[0].m.properties;
-  
-  // Return response
+
+  // Return response with normalized date string
   return {
     id: node.id,
     content: node.content,
@@ -110,7 +110,7 @@ export async function createMemory(
     superseded_by: node.superseded_by,
     entity_id: node.entity_id,
     metadata: JSON.parse(node.metadata),
-    created_at: node.created_at,
+    created_at: normalizeDateTime(node.created_at),
   };
 }
 
@@ -125,17 +125,17 @@ export async function getMemory(
     ? `MATCH (m:Memory {id: $id, namespace: $namespace}) RETURN m`
     : `MATCH (m:Memory {id: $id}) RETURN m`;
   
-  const results = await executeRead<Neo4jMemoryNode>(cypher, { 
+  const results = await executeRead<Neo4jMemoryNode>(cypher, {
     id: memoryId,
     ...(namespace && { namespace }),
   });
-  
+
   if (results.length === 0) {
     return null;
   }
-  
+
   const node = results[0].m.properties;
-  
+
   return {
     id: node.id,
     content: node.content,
@@ -145,7 +145,7 @@ export async function getMemory(
     superseded_by: node.superseded_by,
     entity_id: node.entity_id,
     metadata: JSON.parse(node.metadata),
-    created_at: node.created_at,
+    created_at: normalizeDateTime(node.created_at),
   };
 }
 
@@ -160,7 +160,7 @@ export async function getAllMemories(namespace?: string): Promise<Memory[]> {
   const results = await executeRead<Neo4jMemoryNode>(cypher, {
     ...(namespace && { namespace }),
   });
-  
+
   return results.map((result) => {
     const node = result.m.properties;
     return {
@@ -172,7 +172,7 @@ export async function getAllMemories(namespace?: string): Promise<Memory[]> {
       superseded_by: node.superseded_by,
       entity_id: node.entity_id,
       metadata: JSON.parse(node.metadata),
-      created_at: node.created_at,
+      created_at: normalizeDateTime(node.created_at),
     };
   });
 }
