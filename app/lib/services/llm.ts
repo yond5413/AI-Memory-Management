@@ -355,7 +355,7 @@ function simpleFallbackChunking(fullText: string): PdfChunk[] {
 
 /**
  * Extract key points from a text chunk for memory creation.
- * Returns a concise, bullet-point summary.
+ * Returns a concise 1-2 sentence summary.
  */
 export async function extractKeyPoints(
   content: string,
@@ -366,45 +366,85 @@ export async function extractKeyPoints(
   
   // Fallback if no API key
   if (!apiKey) {
-    return content.substring(0, 300);
+    console.warn('OPENROUTER_API_KEY not found - cannot summarize PDF chunks');
+    throw new Error('OPENROUTER_API_KEY is required for PDF summarization');
   }
   
   const client = getOpenAIClient();
   
-  try {
-    const topicContext = topic ? `\n\nTopic/Section: ${topic}` : '';
-    
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a precise information extractor. Extract only the key facts, concepts, and important details from text. Be concise but preserve essential information.',
-        },
-        {
-          role: 'user',
-          content: `Extract the key points from this text. Format as a concise summary that captures:
-- Main concepts and ideas
-- Important facts and data
-- Key conclusions or insights
+  // Retry logic with model fallbacks
+  const fallbackModels = [
+    model, // User's preferred model
+    'qwen/qwen3-235b-a22b:free', // Reliable fallback
+    'minimax/minimax-m2:free' // Secondary fallback
+  ];
+  
+  let lastError: Error | null = null;
+  
+  for (const currentModel of fallbackModels) {
+    try {
+      const topicContext = topic ? ` about "${topic}"` : '';
+      
+      const response = await client.chat.completions.create({
+        model: currentModel,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a precise summarization expert. Create concise summaries that capture essential information in 1-2 complete sentences.',
+          },
+          {
+            role: 'user',
+            content: `Summarize the following text${topicContext} in exactly 1-2 complete sentences. Capture the main points and key information as a flowing paragraph.
 
-Be direct and factual. Do NOT use meta-phrases like "This text discusses" or "The document describes". State the information directly.${topicContext}
+Requirements:
+- Write 1-2 complete sentences only
+- Do NOT use meta-phrases like "This text discusses" or "The document describes"
+- State the information directly and factually
+- Ensure sentences are complete (no cutoffs)
 
 Text:
 ${content}
 
-Key Points:`,
-        },
-      ],
-      max_tokens: 300,
-      temperature: 0.3,
-    });
-    
-    return response.choices[0]?.message?.content?.trim() || content.substring(0, 300);
-  } catch (error) {
-    console.error('LLM key point extraction failed:', error);
-    return content.substring(0, 300);
+Summary:`,
+          },
+        ],
+        max_tokens: 300, // Increased to allow full sentences
+        temperature: 0.3,
+      });
+      
+      const summary = response.choices[0]?.message?.content?.trim();
+      
+      // Validate we got a meaningful summary
+      if (!summary || summary.length < 50) {
+        console.warn(`LLM returned invalid summary with model ${currentModel}:`, summary);
+        lastError = new Error(`LLM returned invalid or empty summary (${summary?.length || 0} chars)`);
+        continue; // Try next model
+      }
+      
+      // Check for incomplete sentences (ending with partial words/emails)
+      if (summary.includes('@c') || summary.endsWith('@') || !summary.match(/[.!?]$/)) {
+        console.warn(`Summary appears incomplete with model ${currentModel}:`, summary);
+        lastError = new Error('Summary appears incomplete or cut off');
+        continue; // Try next model
+      }
+      
+      // Validate the summary is actually shorter than the original
+      if (summary.length >= content.length * 0.9) {
+        console.warn('LLM summary is not significantly shorter than original');
+      }
+      
+      console.log(`✓ Successfully summarized ${content.length} chars to ${summary.length} chars using ${currentModel}`);
+      return summary;
+    } catch (error) {
+      console.warn(`Model ${currentModel} failed:`, error);
+      lastError = error as Error;
+      continue; // Try next model
+    }
   }
+  
+  // All models failed
+  console.error('All LLM models failed for key point extraction');
+  throw lastError || new Error('All LLM models failed to generate summary');
 }
 
 /**

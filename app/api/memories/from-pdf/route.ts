@@ -63,46 +63,96 @@ export async function POST(request: NextRequest) {
     
     console.log(`Identified ${chunks.length} semantic sections in PDF`);
 
-    const createdMemories: Memory[] = [];
+    interface ProcessResult {
+      successful: { memory: Memory; chunkIndex: number }[];
+      failed: { error: string; chunkIndex: number; chunkTopic: string }[];
+    }
+
+    const results: ProcessResult = {
+      successful: [],
+      failed: []
+    };
 
     // Create memories for each semantic chunk
     // We do this sequentially to avoid overwhelming the DB/Embedding API with parallel requests
     for (const [index, chunk] of chunks.entries()) {
-        // Extract key points from the chunk
-        let keyPoints = chunk.text;
-        try {
-            console.log(`Extracting key points for section: ${chunk.topic}`);
-            keyPoints = await extractKeyPoints(chunk.text, chunk.topic, userLlmModel);
-        } catch (e) {
-             console.warn(`Failed to extract key points for chunk ${index}, using original text`, e);
-             // Fallback to truncated original text
-             keyPoints = chunk.text.substring(0, 500);
-        }
-
-        const memoryCreate: MemoryCreate = {
-            content: keyPoints,
-            metadata: {
-                source: 'pdf',
-                filename: file.name,
-                chunk_index: index,
-                total_chunks: chunks.length,
-                section_topic: chunk.topic,
-                original_text: chunk.text, // Store full original text
-                char_range: `${chunk.startIndex}-${chunk.endIndex}`
-            },
-        };
+        console.log(`\n--- Processing chunk ${index + 1}/${chunks.length} ---`);
+        console.log(`Section: ${chunk.topic}`);
+        console.log(`Original text length: ${chunk.text.length} chars`);
         
         try {
-            const memory = await createMemory(memoryCreate, userId, graphNamespace);
-            createdMemories.push(memory);
-            console.log(`Created memory for section: ${chunk.topic}`);
+          // Extract key points from the chunk with retry logic
+          const keyPoints = await extractKeyPoints(chunk.text, chunk.topic, userLlmModel);
+          console.log(`✓ Summarized to: ${keyPoints.length} chars`);
+          console.log(`Summary preview: ${keyPoints.substring(0, 150)}...`);
+
+          const memoryCreate: MemoryCreate = {
+              content: keyPoints, // Store the summary
+              metadata: {
+                  source: 'pdf',
+                  filename: file.name,
+                  chunk_index: index,
+                  total_chunks: chunks.length,
+                  section_topic: chunk.topic,
+                  original_text: chunk.text, // Store full original text in metadata
+                  char_range: `${chunk.startIndex}-${chunk.endIndex}`,
+                  summary_length: keyPoints.length,
+                  original_length: chunk.text.length
+              },
+          };
+          
+          const memory = await createMemory(memoryCreate, userId, graphNamespace);
+          results.successful.push({ memory, chunkIndex: index });
+          console.log(`✓ Created memory ${memory.id} for section: ${chunk.topic}`);
         } catch (e) {
-            console.error(`Failed to create memory for chunk ${index}`, e);
-            // Continue with other chunks
+            console.error(`✗ Failed to process chunk ${index} (${chunk.topic}):`, e);
+            results.failed.push({
+              error: String(e),
+              chunkIndex: index,
+              chunkTopic: chunk.topic
+            });
         }
     }
     
-    return NextResponse.json(createdMemories, { status: 201 });
+    const successCount = results.successful.length;
+    const failedCount = results.failed.length;
+    
+    console.log(`\n=== PDF Processing Complete ===`);
+    console.log(`✓ Successful: ${successCount} chunks`);
+    console.log(`✗ Failed: ${failedCount} chunks`);
+    
+    // Determine response based on results
+    if (successCount === 0) {
+        // Complete failure - no memories created
+        console.error('Complete failure: No PDF chunks were successfully processed');
+        return NextResponse.json(
+            { 
+                error: 'Failed to process any PDF chunks',
+                details: results.failed.map(f => `${f.chunkTopic}: ${f.error}`).join('; '),
+                failed_chunks: results.failed,
+                hint: 'Check your OPENROUTER_API_KEY configuration'
+            },
+            { status: 500 }
+        );
+    } else if (failedCount === 0) {
+        // Complete success - all memories created
+        const createdMemories = results.successful.map(r => r.memory);
+        return NextResponse.json(createdMemories, { status: 201 });
+    } else {
+        // Partial success - some memories created, some failed
+        console.warn(`⚠ Partial success: ${failedCount} chunks failed processing`);
+        const createdMemories = results.successful.map(r => r.memory);
+
+        // Return partial success response
+        return NextResponse.json({
+            memories: createdMemories,
+            success: true,
+            partial: true,
+            message: `Successfully processed ${successCount} of ${chunks.length} chunks`,
+            failed_chunks: results.failed,
+            warning: `${failedCount} chunks failed processing and were skipped`
+        }, { status: 201 });
+    }
   } catch (error) {
     console.error('Error creating memory from PDF:', error);
     return NextResponse.json(
