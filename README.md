@@ -1,4 +1,4 @@
-# Semantic Memory System (Phase 2)
+# Semantic Memory System 
 
 A production-ready semantic memory system that enables persistent, connected, and evolving memory for AI systems. This system transforms unstructured natural language or PDF input into semantic memory objects with embeddings and relationships, supporting search, reasoning, and lineage tracking.
 
