@@ -60,7 +60,7 @@ export interface CreateMemoryRequest {
 
 export interface CreateRelationshipRequest {
   to: string;
-  type: "update" | "extend" | "derive";
+  type: "update" | "extend" | "derive" | "related";
   description?: string;
 }
 
