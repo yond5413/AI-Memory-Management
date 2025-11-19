@@ -1,9 +1,10 @@
 /** Memory service functions. */
 import { executeWrite, executeRead } from './neo4j';
 import { createEmbedding } from './embeddings';
-import { upsertEmbedding } from './pinecone';
+import { upsertEmbedding, deleteEmbedding, searchEmbeddings } from './pinecone';
+import { createRelationship } from './relationship';
 import { genId, normalizeDateTime } from '../utils';
-import { Memory, MemoryCreate, MemoryStatus } from '../types';
+import { Memory, MemoryCreate, MemoryStatus, RelationshipType } from '../types';
 
 interface Neo4jMemoryNode {
   m: {
@@ -99,6 +100,38 @@ export async function createMemory(
   }
 
   const node = results[0].m.properties;
+
+  // Dynamic Linking: Search for similar memories and link them
+  if (embeddingVector.length > 0) {
+    try {
+      const similarMemories = await searchEmbeddings(embeddingVector, 3, namespace);
+      
+      for (const match of similarMemories) {
+        // Skip if score is too low
+        if (match.score < 0.8) continue;
+        
+        // Get the memory ID from metadata
+        const targetMemoryId = match.metadata.memory_id as string;
+        
+        // Ensure we don't link to self (shouldn't happen if we just created it, unless race condition or index update speed)
+        if (targetMemoryId && targetMemoryId !== memoryId) {
+          // We use a try-catch per relationship to avoid failing the whole request if one fails
+          try {
+             await createRelationship(memoryId, {
+              to: targetMemoryId,
+              type: RelationshipType.RELATED,
+              description: 'Automatically linked based on similarity'
+            });
+          } catch (relError) {
+             // Ignore specific relationship creation errors (e.g. duplicates or race conditions)
+             console.warn(`Failed to auto-link memory ${memoryId} to ${targetMemoryId}:`, relError);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Warning: Dynamic linking failed:', error);
+    }
+  }
 
   // Return response with normalized date string
   return {
@@ -201,6 +234,18 @@ export async function updateMemoryStatus(
  * Delete a memory (with optional namespace filtering).
  */
 export async function deleteMemory(memoryId: string, namespace?: string): Promise<void> {
+  // First get the memory to find its vector_id
+  const memory = await getMemory(memoryId, namespace);
+  
+  if (memory && memory.embedding_id) {
+    try {
+      await deleteEmbedding(memory.embedding_id, namespace);
+    } catch (error) {
+      console.warn('Warning: Failed to delete embedding:', error);
+      // Continue to delete from graph even if vector deletion fails
+    }
+  }
+
   const cypher = namespace
     ? `MATCH (m:Memory {id: $id, namespace: $namespace}) DETACH DELETE m`
     : `MATCH (m:Memory {id: $id}) DETACH DELETE m`;

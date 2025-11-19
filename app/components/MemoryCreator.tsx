@@ -40,9 +40,14 @@ export function MemoryCreator({ onMemoryCreated }: MemoryCreatorProps) {
     setError(null);
 
     try {
-      const memory = await createMemoryFromPDF(file);
+      const memories = await createMemoryFromPDF(file);
       if (onMemoryCreated) {
-        onMemoryCreated(memory);
+        // Just notify about the first one or refresh list, 
+        // logic depends on parent. If parent expects one, we pass the first.
+        // Ideally we'd pass all, but let's loop for now if parent only accepts one.
+        if (Array.isArray(memories)) {
+            memories.forEach(m => onMemoryCreated(m));
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload PDF");

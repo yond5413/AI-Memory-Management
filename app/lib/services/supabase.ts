@@ -115,3 +115,25 @@ export async function ensureUserNamespace(userId: string): Promise<{
   };
 }
 
+/**
+ * Get user's preferred LLM model from settings.
+ * Returns qwen as fallback if not found.
+ */
+export async function getUserLlmModel(userId: string): Promise<string> {
+  const supabase = createServiceClient();
+  
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('llm_model')
+    .eq('user_id', userId)
+    .single();
+  
+  if (error || !data?.llm_model) {
+    console.log('Using fallback LLM model (qwen) for user:', userId);
+    return 'qwen/qwen3-235b-a22b:free';
+  }
+  
+  console.log('Using user LLM model:', data.llm_model, 'for user:', userId);
+  return data.llm_model;
+}
+

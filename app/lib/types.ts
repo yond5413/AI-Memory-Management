@@ -44,6 +44,7 @@ export enum RelationshipType {
   UPDATE = "update",
   EXTEND = "extend",
   DERIVE = "derive",
+  RELATED = "related",
 }
 
 export interface RelationshipBase {

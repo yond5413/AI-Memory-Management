@@ -37,7 +37,7 @@ export interface Relationship {
   id: string;
   from_memory: string;
   to_memory: string;
-  type: "update" | "extend" | "derive";
+  type: "update" | "extend" | "derive" | "related";
   description?: string | null;
   created_at: string;
 }
@@ -79,7 +79,7 @@ export async function createMemory(data: CreateMemoryRequest): Promise<Memory> {
 }
 
 /** Create a memory from PDF file */
-export async function createMemoryFromPDF(file: File): Promise<Memory> {
+export async function createMemoryFromPDF(file: File): Promise<Memory[]> {
   const supabase = createClient();
   const { data: { session } } = await supabase.auth.getSession();
   
@@ -108,6 +108,19 @@ export async function getMemory(id: string): Promise<Memory> {
   const response = await fetch(`${API_BASE_URL}/memories/${id}`, { headers });
   if (!response.ok) {
     throw new Error(`Failed to get memory: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/** Delete a memory by ID */
+export async function deleteMemory(id: string): Promise<void> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE_URL}/memories/${id}`, { 
+    method: "DELETE",
+    headers 
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete memory: ${response.statusText}`);
   }
   return response.json();
 }

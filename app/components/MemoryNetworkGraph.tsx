@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useMemo } from "react";
+import { useEffect, useCallback, useMemo, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -14,12 +14,14 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import dagre from "dagre";
 import type { Memory, Relationship } from "@/app/lib/api";
+import { createRelationship } from "@/app/lib/api";
 
 interface MemoryNetworkGraphProps {
   memories: Memory[];
   relationships: Relationship[];
   onNodeClick?: (memoryId: string) => void;
   selectedMemoryId?: string | null;
+  onRelationshipCreated?: () => void;
 }
 
 // Create dagre graph layout
@@ -61,9 +63,13 @@ export function MemoryNetworkGraph({
   relationships,
   onNodeClick,
   selectedMemoryId,
+  onRelationshipCreated,
 }: MemoryNetworkGraphProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [connectionMode, setConnectionMode] = useState(false);
+  const [firstNode, setFirstNode] = useState<string | null>(null);
+  const [isCreatingRelationship, setIsCreatingRelationship] = useState(false);
 
   // Update graph when data changes
   useEffect(() => {
@@ -115,6 +121,8 @@ export function MemoryNetworkGraph({
           ? "#ef4444"
           : rel.type === "derive"
           ? "#8b5cf6"
+          : rel.type === "related"
+          ? "#10b981"
           : "#3b82f6";
 
       return {
@@ -157,13 +165,51 @@ export function MemoryNetworkGraph({
   }, [memories, relationships, selectedMemoryId, setNodes, setEdges]);
 
   const onNodeClickHandler = useCallback(
-    (event: React.MouseEvent, node: Node) => {
-      if (onNodeClick) {
+    async (event: React.MouseEvent, node: Node) => {
+      if (connectionMode) {
+        // Handle connection mode
+        if (!firstNode) {
+          // Select first node
+          setFirstNode(node.id);
+        } else if (firstNode !== node.id) {
+          // Create relationship between first and second node
+          setIsCreatingRelationship(true);
+          try {
+            await createRelationship(firstNode, {
+              to: node.id,
+              type: "related",
+              description: "Manually connected",
+            });
+            // Reset connection mode
+            setFirstNode(null);
+            setConnectionMode(false);
+            // Notify parent to refresh
+            if (onRelationshipCreated) {
+              onRelationshipCreated();
+            }
+          } catch (error) {
+            console.error("Failed to create relationship:", error);
+            alert("Failed to create connection. Please try again.");
+          } finally {
+            setIsCreatingRelationship(false);
+          }
+        }
+      } else if (onNodeClick) {
         onNodeClick(node.id);
       }
     },
-    [onNodeClick]
+    [connectionMode, firstNode, onNodeClick, onRelationshipCreated]
   );
+
+  const toggleConnectionMode = useCallback(() => {
+    setConnectionMode((prev) => !prev);
+    setFirstNode(null);
+  }, []);
+
+  const cancelConnection = useCallback(() => {
+    setConnectionMode(false);
+    setFirstNode(null);
+  }, []);
 
   if (!memories || memories.length === 0) {
     return (
@@ -176,7 +222,41 @@ export function MemoryNetworkGraph({
   }
 
   return (
-    <div className="w-full h-full bg-gray-900 rounded-lg overflow-hidden">
+    <div className="w-full h-full bg-gray-900 rounded-lg overflow-hidden relative">
+      {connectionMode && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-purple-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+            <span className="font-semibold">
+              {firstNode
+                ? "Click on a second node to connect"
+                : "Click on a node to start connecting"}
+            </span>
+          </div>
+          <button
+            onClick={cancelConnection}
+            disabled={isCreatingRelationship}
+            className="px-3 py-1 bg-white text-purple-600 rounded hover:bg-gray-100 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      
+      <div className="absolute top-4 right-4 z-10">
+        <button
+          onClick={toggleConnectionMode}
+          disabled={isCreatingRelationship}
+          className={`px-4 py-2 rounded-lg shadow-lg font-semibold transition-all disabled:opacity-50 ${
+            connectionMode
+              ? "bg-red-600 text-white hover:bg-red-700"
+              : "bg-green-600 text-white hover:bg-green-700"
+          }`}
+        >
+          {connectionMode ? "Exit Connect Mode" : "Connect Nodes"}
+        </button>
+      </div>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}

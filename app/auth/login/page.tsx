@@ -28,8 +28,10 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/');
+      // Force session refresh
+      await supabase.auth.refreshSession();
       router.refresh();
+      router.push('/');
     } catch (err) {
       setError('An unexpected error occurred');
     } finally {

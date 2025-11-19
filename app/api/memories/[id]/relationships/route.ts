@@ -25,7 +25,7 @@ export async function POST(
     
     if (!body.type || !Object.values(RelationshipType).includes(body.type)) {
       return NextResponse.json(
-        { error: 'Valid relationship type is required (update, extend, or derive)' },
+        { error: 'Valid relationship type is required (update, extend, derive, or related)' },
         { status: 400 }
       );
     }
@@ -47,5 +47,8 @@ export async function POST(
     );
   }
 }
+
+
+
 
 

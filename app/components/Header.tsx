@@ -2,9 +2,17 @@
 
 import { useAuth } from './AuthProvider';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export function Header() {
   const { user, loading, signOut } = useAuth();
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/auth/login');
+    router.refresh();
+  };
 
   return (
     <header className="bg-white shadow-sm border-b">
@@ -22,13 +30,19 @@ export function Header() {
             ) : user ? (
               <>
                 <Link
+                  href="/chat"
+                  className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
+                >
+                  Chat
+                </Link>
+                <Link
                   href="/settings"
-                  className="text-sm text-gray-700 hover:text-gray-900"
+                  className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
                 >
                   Settings
                 </Link>
                 <button
-                  onClick={signOut}
+                  onClick={handleSignOut}
                   className="text-sm text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md bg-gray-100"
                 >
                   Sign Out

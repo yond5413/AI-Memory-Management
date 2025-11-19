@@ -6,6 +6,7 @@ import {
   createMemory,
   createMemoryFromPDF,
   getMemory,
+  deleteMemory,
   getMemoryLineage,
   createRelationship,
   searchMemories,
@@ -50,6 +51,7 @@ export function useMemoryGraph() {
 export const memoryMutations = {
   create: createMemory,
   createFromPDF: createMemoryFromPDF,
+  delete: deleteMemory,
   createRelationship: createRelationship,
   derive: deriveMemory,
 };
