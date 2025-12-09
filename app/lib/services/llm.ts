@@ -1,6 +1,6 @@
 /** LLM service for deriving insights using OpenRouter. */
 import OpenAI from 'openai';
-import { getEnv } from '../utils';
+import { getEnv, delay } from '../utils';
 
 let openaiClient: OpenAI | null = null;
 
@@ -13,7 +13,7 @@ function getOpenAIClient(): OpenAI {
     if (!apiKey) {
       throw new Error('OPENROUTER_API_KEY environment variable is required');
     }
-    
+
     openaiClient = new OpenAI({
       baseURL: 'https://openrouter.ai/api/v1',
       apiKey,
@@ -31,14 +31,14 @@ export interface ChatMessage {
  * Generate a chat response using the LLM.
  */
 export async function generateChatResponse(
-  messages: ChatMessage[], 
+  messages: ChatMessage[],
   systemPrompt?: string,
   model: string = 'qwen/qwen3-235b-a22b:free'
 ): Promise<string> {
   const client = getOpenAIClient();
-  
+
   const chatMessages = [...messages];
-  
+
   // Prepend system prompt if provided
   if (systemPrompt) {
     chatMessages.unshift({ role: 'system', content: systemPrompt });
@@ -50,7 +50,7 @@ export async function generateChatResponse(
       messages: chatMessages,
       temperature: 0.7,
     });
-    
+
     return response.choices[0]?.message?.content?.trim() || "I'm sorry, I couldn't generate a response.";
   } catch (error) {
     console.error('LLM chat generation failed:', error);
@@ -63,26 +63,26 @@ export async function generateChatResponse(
  */
 export async function deriveInsight(memoryContents: string[]): Promise<string> {
   const apiKey = getEnv('OPENROUTER_API_KEY');
-  
+
   // Fallback to simple concatenation if no API key
   if (!apiKey) {
     return `Derived insight from ${memoryContents.length} memories: ${memoryContents.join(' ').substring(0, 500)}`;
   }
-  
+
   const client = getOpenAIClient();
-  
+
   // Combine memories as context
   const context = memoryContents
     .map((content, i) => `Memory ${i + 1}: ${content}`)
     .join('\n\n');
-  
+
   // Create prompt for derivation
   const prompt = `Based on the following memories, derive a new insight or conclusion:
 
 ${context}
 
 Please provide a concise derived insight that synthesizes information from these memories:`;
-  
+
   try {
     const response = await client.chat.completions.create({
       model: 'qwen/qwen3-235b-a22b:free',
@@ -98,8 +98,8 @@ Please provide a concise derived insight that synthesizes information from these
       ],
       max_tokens: 500,
     });
-    
-    return response.choices[0]?.message?.content?.trim() || 
+
+    return response.choices[0]?.message?.content?.trim() ||
       `Derived insight from ${memoryContents.length} memories`;
   } catch (error) {
     console.error('LLM derivation failed:', error);
@@ -113,17 +113,17 @@ Please provide a concise derived insight that synthesizes information from these
  */
 export async function summarizeMemory(content: string): Promise<string> {
   const apiKey = getEnv('OPENROUTER_API_KEY');
-  
+
   // Fallback if no API key
   if (!apiKey) {
     return content.substring(0, 200);
   }
-  
+
   const client = getOpenAIClient();
-  
+
   try {
     const response = await client.chat.completions.create({
-      model: 'minimax/minimax-m2:free',
+      model: 'z-ai/glm-4.5-air:free',
       messages: [
         {
           role: 'system',
@@ -136,7 +136,7 @@ export async function summarizeMemory(content: string): Promise<string> {
       ],
       max_tokens: 100,
     });
-    
+
     return response.choices[0]?.message?.content?.trim() || content.substring(0, 200);
   } catch (error) {
     console.error('LLM summarization failed:', error);
@@ -163,19 +163,19 @@ export async function analyzePdfStructure(
   model: string = 'qwen/qwen3-235b-a22b:free'
 ): Promise<PdfChunk[]> {
   const apiKey = getEnv('OPENROUTER_API_KEY');
-  
+
   // Fallback: simple paragraph-based chunking if no API key
   if (!apiKey) {
     return simpleFallbackChunking(fullText);
   }
-  
+
   const client = getOpenAIClient();
-  
+
   // Truncate very long documents for initial analysis
-  const analysisText = fullText.length > 15000 
+  const analysisText = fullText.length > 15000
     ? fullText.substring(0, 15000) + '\n\n[... document continues ...]'
     : fullText;
-  
+
   try {
     const response = await client.chat.completions.create({
       model,
@@ -205,21 +205,21 @@ ${analysisText}`,
       max_tokens: 800,
       temperature: 0.3,
     });
-    
+
     const content = response.choices[0]?.message?.content?.trim();
     if (!content) {
       return simpleFallbackChunking(fullText);
     }
-    
+
     // Parse JSON response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       console.warn('Could not parse LLM structure analysis, using fallback');
       return simpleFallbackChunking(fullText);
     }
-    
+
     const sections = JSON.parse(jsonMatch[0]);
-    
+
     // Convert position-based sections into actual text chunks
     return createChunksFromAnalysis(fullText, sections);
   } catch (error) {
@@ -230,44 +230,53 @@ ${analysisText}`,
 
 /**
  * Convert LLM analysis into actual text chunks with boundaries.
+ * Adjusted to ensure overlaps so context isn't lost.
  */
 function createChunksFromAnalysis(fullText: string, sections: any[]): PdfChunk[] {
   const chunks: PdfChunk[] = [];
   const textLength = fullText.length;
   const numSections = sections.length;
-  
+
   // Calculate approximate boundaries
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
     let startIndex: number;
     let endIndex: number;
-    
+
     // Estimate position based on hints
     if (section.position === 'beginning' || i === 0) {
       startIndex = 0;
       endIndex = Math.floor(textLength / numSections);
     } else if (section.position === 'end' || i === sections.length - 1) {
-      startIndex = chunks[chunks.length - 1]?.endIndex || Math.floor(textLength * 0.7);
+      startIndex = chunks[chunks.length - 1]?.endIndex ? chunks[chunks.length - 1].endIndex - 200 : Math.floor(textLength * 0.7);
       endIndex = textLength;
     } else {
-      startIndex = chunks[chunks.length - 1]?.endIndex || Math.floor((textLength / numSections) * i);
+      // Start slightly before previous end to create overlap
+      const prevEnd = chunks[chunks.length - 1]?.endIndex || 0;
+      startIndex = Math.max(0, prevEnd - 200);
       endIndex = Math.floor((textLength / numSections) * (i + 1));
     }
-    
+
     // Find nearest paragraph boundary
     startIndex = findParagraphBoundary(fullText, startIndex, 'start');
     endIndex = findParagraphBoundary(fullText, endIndex, 'end');
-    
+
     // Ensure we don't exceed size limits (roughly 2000 tokens = ~8000 chars)
     const maxChunkSize = 8000;
     if (endIndex - startIndex > maxChunkSize) {
       endIndex = startIndex + maxChunkSize;
       endIndex = findParagraphBoundary(fullText, endIndex, 'end');
     }
-    
+
+    // Ensure startIndex < endIndex
+    if (startIndex >= endIndex) {
+      // Skip invalid chunks or adjust
+      continue;
+    }
+
     const text = fullText.substring(startIndex, endIndex).trim();
-    
-    if (text.length > 100) {
+
+    if (text.length > 50) { // Reduced min length
       chunks.push({
         startIndex,
         endIndex,
@@ -276,7 +285,7 @@ function createChunksFromAnalysis(fullText: string, sections: any[]): PdfChunk[]
       });
     }
   }
-  
+
   return chunks;
 }
 
@@ -285,7 +294,7 @@ function createChunksFromAnalysis(fullText: string, sections: any[]): PdfChunk[]
  */
 function findParagraphBoundary(text: string, position: number, direction: 'start' | 'end'): number {
   const searchRadius = 200;
-  
+
   if (direction === 'start') {
     const searchStart = Math.max(0, position - searchRadius);
     const substring = text.substring(searchStart, position + searchRadius);
@@ -301,7 +310,7 @@ function findParagraphBoundary(text: string, position: number, direction: 'start
       return position - searchRadius + match;
     }
   }
-  
+
   return position;
 }
 
@@ -311,14 +320,14 @@ function findParagraphBoundary(text: string, position: number, direction: 'start
 function simpleFallbackChunking(fullText: string): PdfChunk[] {
   const maxChunkSize = 6000;
   const chunks: PdfChunk[] = [];
-  
+
   // Split by paragraphs first
   const paragraphs = fullText.split(/\n\s*\n/).filter(p => p.trim().length > 50);
-  
+
   let currentChunk = '';
   let currentStart = 0;
   let chunkIndex = 0;
-  
+
   for (const para of paragraphs) {
     if (currentChunk.length + para.length > maxChunkSize && currentChunk.length > 0) {
       chunks.push({
@@ -334,7 +343,7 @@ function simpleFallbackChunking(fullText: string): PdfChunk[] {
       currentChunk += para + '\n\n';
     }
   }
-  
+
   // Add remaining chunk
   if (currentChunk.trim().length > 0) {
     chunks.push({
@@ -344,7 +353,7 @@ function simpleFallbackChunking(fullText: string): PdfChunk[] {
       text: currentChunk.trim(),
     });
   }
-  
+
   return chunks.length > 0 ? chunks : [{
     startIndex: 0,
     endIndex: fullText.length,
@@ -360,31 +369,31 @@ function simpleFallbackChunking(fullText: string): PdfChunk[] {
 export async function extractKeyPoints(
   content: string,
   topic?: string,
-  model: string = 'qwen/qwen3-235b-a22b:free'
+  model: string = 'amazon/nova-2-lite-v1:free'
 ): Promise<string> {
   const apiKey = getEnv('OPENROUTER_API_KEY');
-  
+
   // Fallback if no API key
   if (!apiKey) {
     console.warn('OPENROUTER_API_KEY not found - cannot summarize PDF chunks');
     throw new Error('OPENROUTER_API_KEY is required for PDF summarization');
   }
-  
+
   const client = getOpenAIClient();
-  
+
   // Retry logic with model fallbacks
   const fallbackModels = [
     model, // User's preferred model
-    'qwen/qwen3-235b-a22b:free', // Reliable fallback
-    'minimax/minimax-m2:free' // Secondary fallback
+    'amazon/nova-2-lite-v1:free', // Reliable fallback
+    'z-ai/glm-4.5-air:free' // Secondary fallback
   ];
-  
+
   let lastError: Error | null = null;
-  
+
   for (const currentModel of fallbackModels) {
     try {
       const topicContext = topic ? ` about "${topic}"` : '';
-      
+
       const response = await client.chat.completions.create({
         model: currentModel,
         messages: [
@@ -411,37 +420,43 @@ Summary:`,
         max_tokens: 300, // Increased to allow full sentences
         temperature: 0.3,
       });
-      
+
       const summary = response.choices[0]?.message?.content?.trim();
-      
+
       // Validate we got a meaningful summary
-      if (!summary || summary.length < 50) {
-        console.warn(`LLM returned invalid summary with model ${currentModel}:`, summary);
-        lastError = new Error(`LLM returned invalid or empty summary (${summary?.length || 0} chars)`);
+      if (!summary) {
+        console.warn(`LLM returned invalid summary with model ${currentModel}. Type: ${typeof summary}, Value: ${JSON.stringify(summary)}`);
+        lastError = new Error(`LLM returned invalid or empty summary (${summary === null ? 'null' : (typeof summary === 'undefined' ? 'undefined' : summary.length + ' chars')})`);
         continue; // Try next model
       }
-      
+
+
       // Check for incomplete sentences (ending with partial words/emails)
       if (summary.includes('@c') || summary.endsWith('@') || !summary.match(/[.!?]$/)) {
         console.warn(`Summary appears incomplete with model ${currentModel}:`, summary);
-        lastError = new Error('Summary appears incomplete or cut off');
-        continue; // Try next model
+        // Only treat as error if it's very short, otherwise just use what we have but warn
+        if (summary.length < 50) {
+          lastError = new Error('Summary appears incomplete or cut off');
+          await delay(2000); // Wait before retrying
+          continue;
+        }
       }
-      
+
       // Validate the summary is actually shorter than the original
       if (summary.length >= content.length * 0.9) {
         console.warn('LLM summary is not significantly shorter than original');
       }
-      
+
       console.log(`✓ Successfully summarized ${content.length} chars to ${summary.length} chars using ${currentModel}`);
       return summary;
     } catch (error) {
       console.warn(`Model ${currentModel} failed:`, error);
       lastError = error as Error;
+      await delay(2000); // Wait before retrying
       continue; // Try next model
     }
   }
-  
+
   // All models failed
   console.error('All LLM models failed for key point extraction');
   throw lastError || new Error('All LLM models failed to generate summary');
@@ -453,17 +468,17 @@ Summary:`,
  */
 export async function summarizePdfChunk(content: string): Promise<string> {
   const apiKey = getEnv('OPENROUTER_API_KEY');
-  
+
   // Fallback if no API key
   if (!apiKey) {
     return content.substring(0, 200);
   }
-  
+
   const client = getOpenAIClient();
-  
+
   try {
     const response = await client.chat.completions.create({
-      model: 'qwen/qwen3-235b-a22b:free',
+      model: 'amazon/nova-2-lite-v1:free',
       messages: [
         {
           role: 'system',
@@ -476,7 +491,7 @@ export async function summarizePdfChunk(content: string): Promise<string> {
       ],
       max_tokens: 200,
     });
-    
+
     return response.choices[0]?.message?.content?.trim() || content.substring(0, 200);
   } catch (error) {
     console.error('LLM PDF chunk summarization failed:', error);

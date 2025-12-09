@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.namespaces (
 CREATE TABLE IF NOT EXISTS public.user_settings (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   embedding_model TEXT DEFAULT 'text-embedding-3-small',
-  llm_model TEXT DEFAULT 'gpt-4',
+  llm_model TEXT DEFAULT 'z-ai/glm-4.5-air:free',
   memory_rules JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

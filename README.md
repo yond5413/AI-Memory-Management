@@ -21,7 +21,7 @@ A production-ready semantic memory system that enables persistent, connected, an
 - **Database (Auth/Meta)**: Supabase (Postgres)
 - **Vector Database**: Pinecone
 - **Embedding Provider**: Cohere (embed-english-v3.0)
-- **LLM**: OpenRouter / Minimax (for chat and derivation)
+- **LLM**: OpenRouter / z-ai/glm-4.5-air:free (for chat and derivation)
 - **Frontend**: React + Tailwind CSS
 
 ## Prerequisites

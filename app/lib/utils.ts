@@ -10,10 +10,10 @@ export function genId(prefix: "mem" | "rel" | "vec" | "ent" = "mem"): string {
   // Generate random bytes (equivalent to uuid.uuid4().bytes)
   const array = new Uint8Array(16);
   crypto.getRandomValues(array);
-  
+
   // Convert to base64 URL-safe and take first 8 characters
   const base64 = Buffer.from(array).toString('base64url').substring(0, 8);
-  
+
   return `${prefix}_${base64}`;
 }
 
@@ -59,3 +59,8 @@ export function normalizeDateTime(value: any): string {
   return "";
 }
 
+
+/**
+ * Delay execution for a specified number of milliseconds.
+ */
+export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

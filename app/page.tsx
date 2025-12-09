@@ -22,35 +22,51 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-gray-600">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse flex flex-col items-center gap-2">
+          <div className="h-4 w-4 bg-foreground rounded-full animate-bounce"></div>
+          <p className="text-sm text-muted font-medium">Loading...</p>
         </div>
       </div>
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background font-sans">
       <Header />
 
-      <main className="mx-auto px-4 py-8" style={{ maxWidth: "1600px" }}>
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">AI Memory System</h1>
-          <p className="text-gray-600 mt-2">Your personal, connected, and evolving memory</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="mb-10 text-center sm:text-left">
+          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl mb-3">
+            Memory Engine
+          </h1>
+          <p className="text-lg text-muted max-w-2xl">
+            Your personal, connected, and evolving intelligence layer.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <MemoryCreator onMemoryCreated={(memory) => setSelectedMemory(memory)} />
-          <SearchPanel onMemorySelect={(memory) => setSelectedMemory(memory)} />
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Column: Actions & Feed */}
+          <div className="lg:col-span-12 xl:col-span-5 flex flex-col gap-6">
+            <section className="bg-white dark:bg-zinc-900/50 rounded-xl border border-border p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">New Memory</h2>
+              <MemoryCreator onMemoryCreated={(memory) => setSelectedMemory(memory)} />
+            </section>
 
-        <div className="mt-6">
-          <MemoryInspector memory={selectedMemory} />
+            <section className="bg-white dark:bg-zinc-900/50 rounded-xl border border-border p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">Search & Recall</h2>
+              <SearchPanel onMemorySelect={(memory) => setSelectedMemory(memory)} />
+            </section>
+          </div>
+
+          {/* Right Column: Inspector */}
+          <div className="lg:col-span-12 xl:col-span-7">
+            <div className="bg-white dark:bg-zinc-900/50 rounded-xl border border-border p-6 shadow-sm min-h-[600px]">
+              <MemoryInspector memory={selectedMemory} />
+            </div>
+          </div>
         </div>
       </main>
     </div>

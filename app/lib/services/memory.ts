@@ -34,12 +34,12 @@ export async function createMemory(
   // Generate IDs
   const memoryId = genId('mem');
   const embeddingId = genId('vec');
-  
+
   // Create embedding
   let embeddingVector: number[] = [];
   try {
     embeddingVector = await createEmbedding(memory.content);
-    
+
     // Store embedding in Pinecone with namespace
     await upsertEmbedding(
       embeddingId,
@@ -57,7 +57,7 @@ export async function createMemory(
     // Continue even if embedding fails for MVP
     console.warn('Warning: Embedding creation failed:', error);
   }
-  
+
   const now = new Date().toISOString();
 
   // Create memory node in Neo4j with user ownership
@@ -105,26 +105,26 @@ export async function createMemory(
   if (embeddingVector.length > 0) {
     try {
       const similarMemories = await searchEmbeddings(embeddingVector, 3, namespace);
-      
+
       for (const match of similarMemories) {
         // Skip if score is too low
         if (match.score < 0.8) continue;
-        
+
         // Get the memory ID from metadata
         const targetMemoryId = match.metadata.memory_id as string;
-        
+
         // Ensure we don't link to self (shouldn't happen if we just created it, unless race condition or index update speed)
         if (targetMemoryId && targetMemoryId !== memoryId) {
           // We use a try-catch per relationship to avoid failing the whole request if one fails
           try {
-             await createRelationship(memoryId, {
+            await createRelationship(memoryId, {
               to: targetMemoryId,
               type: RelationshipType.RELATED,
               description: 'Automatically linked based on similarity'
             });
           } catch (relError) {
-             // Ignore specific relationship creation errors (e.g. duplicates or race conditions)
-             console.warn(`Failed to auto-link memory ${memoryId} to ${targetMemoryId}:`, relError);
+            // Ignore specific relationship creation errors (e.g. duplicates or race conditions)
+            console.warn(`Failed to auto-link memory ${memoryId} to ${targetMemoryId}:`, relError);
           }
         }
       }
@@ -157,7 +157,7 @@ export async function getMemory(
   const cypher = namespace
     ? `MATCH (m:Memory {id: $id, namespace: $namespace}) RETURN m`
     : `MATCH (m:Memory {id: $id}) RETURN m`;
-  
+
   const results = await executeRead<Neo4jMemoryNode>(cypher, {
     id: memoryId,
     ...(namespace && { namespace }),
@@ -189,7 +189,7 @@ export async function getAllMemories(namespace?: string): Promise<Memory[]> {
   const cypher = namespace
     ? `MATCH (m:Memory {namespace: $namespace}) RETURN m ORDER BY m.created_at DESC`
     : `MATCH (m:Memory) RETURN m ORDER BY m.created_at DESC`;
-  
+
   const results = await executeRead<Neo4jMemoryNode>(cypher, {
     ...(namespace && { namespace }),
   });
@@ -221,7 +221,7 @@ export async function updateMemoryStatus(
   const cypher = namespace
     ? `MATCH (m:Memory {id: $id, namespace: $namespace}) SET m.status = $status, m.updated_at = datetime($updated_at)`
     : `MATCH (m:Memory {id: $id}) SET m.status = $status, m.updated_at = datetime($updated_at)`;
-  
+
   await executeWrite(cypher, {
     id: memoryId,
     status,
@@ -236,7 +236,7 @@ export async function updateMemoryStatus(
 export async function deleteMemory(memoryId: string, namespace?: string): Promise<void> {
   // First get the memory to find its vector_id
   const memory = await getMemory(memoryId, namespace);
-  
+
   if (memory && memory.embedding_id) {
     try {
       await deleteEmbedding(memory.embedding_id, namespace);
@@ -249,8 +249,8 @@ export async function deleteMemory(memoryId: string, namespace?: string): Promis
   const cypher = namespace
     ? `MATCH (m:Memory {id: $id, namespace: $namespace}) DETACH DELETE m`
     : `MATCH (m:Memory {id: $id}) DETACH DELETE m`;
-  
-  await executeWrite(cypher, { 
+
+  await executeWrite(cypher, {
     id: memoryId,
     ...(namespace && { namespace }),
   });
