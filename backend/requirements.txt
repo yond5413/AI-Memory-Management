@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+supabase
+python-multipart
+pypdf
+cohere
+# openai==1.12.0 # User commented out
+apscheduler
+python-dotenv
+neo4j
+scikit-learn
+numpy
+pandas
+pinecone-client
+pydantic-settings
+websockets>=13.0
